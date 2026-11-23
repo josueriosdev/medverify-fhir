@@ -259,13 +259,8 @@ impl MmapPtpIndex {
         open(path.as_ref())
     }
 
-    pub(crate) fn active_on(
-        &self,
-        col1: u32,
-        col2: u32,
-        setting: u8,
-        day: u16,
-    ) -> Option<&NcciPtpRecord> {
+    /// Finds a column-ordered PTP pair for the encoded setting and service day.
+    pub fn active_on(&self, col1: u32, col2: u32, setting: u8, day: u16) -> Option<&NcciPtpRecord> {
         active_record(self.records(), (col1, col2, setting), day)
     }
 }
