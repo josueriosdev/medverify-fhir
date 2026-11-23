@@ -1,0 +1,166 @@
+{
+  "resourceType": "Bundle",
+  "meta": {
+    "profile": [
+      "http://hl7.org/fhir/us/davinci-pas/StructureDefinition/profile-pas-response-bundle|2.2.1"
+    ]
+  },
+  "type": "collection",
+  "identifier": {
+    "system": "https://example.test/identifiers",
+    "value": "response-bundle"
+  },
+  "timestamp": "2026-07-06T09:05:00-07:00",
+  "entry": [
+    {
+      "fullUrl": "https://example.test/fhir/ClaimResponse/response",
+      "resource": {
+        "resourceType": "ClaimResponse",
+        "id": "response",
+        "meta": {
+          "profile": [
+            "http://hl7.org/fhir/us/davinci-pas/StructureDefinition/profile-claimresponse|2.2.1"
+          ]
+        },
+        "status": "active",
+        "type": {
+          "coding": [
+            {
+              "system": "http://terminology.hl7.org/CodeSystem/claim-type",
+              "code": "professional"
+            }
+          ]
+        },
+        "use": "preauthorization",
+        "patient": {
+          "reference": "Patient/patient"
+        },
+        "created": "2026-07-06T09:05:00-07:00",
+        "insurer": {
+          "reference": "Organization/payer"
+        },
+        "request": {
+          "reference": "Claim/request"
+        },
+        "outcome": "complete",
+        "item": [
+          {
+            "itemSequence": 5,
+            "adjudication": [
+              {
+                "category": {
+                  "coding": [
+                    {
+                      "system": "http://terminology.hl7.org/CodeSystem/adjudication",
+                      "code": "submitted"
+                    }
+                  ]
+                },
+                "extension": [
+                  {
+                    "url": "http://hl7.org/fhir/us/davinci-pas/StructureDefinition/extension-reviewAction",
+                    "extension": [
+                      {
+                        "url": "http://hl7.org/fhir/us/davinci-pas/StructureDefinition/extension-reviewActionCode",
+                        "valueCodeableConcept": {
+                          "coding": [
+                            {
+                              "system": "https://codesystem.x12.org/005010/306",
+                              "code": "A1"
+                            }
+                          ]
+                        }
+                      },
+                      {
+                        "url": "number",
+                        "valueString": "SYNTH-AUTH-5"
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "itemSequence": 1,
+            "adjudication": [
+              {
+                "category": {
+                  "coding": [
+                    {
+                      "system": "http://terminology.hl7.org/CodeSystem/adjudication",
+                      "code": "submitted"
+                    }
+                  ]
+                },
+                "extension": [
+                  {
+                    "url": "http://hl7.org/fhir/us/davinci-pas/StructureDefinition/extension-reviewAction",
+                    "extension": [
+                      {
+                        "url": "http://hl7.org/fhir/us/davinci-pas/StructureDefinition/extension-reviewActionCode",
+                        "valueCodeableConcept": {
+                          "coding": [
+                            {
+                              "system": "https://codesystem.x12.org/005010/306",
+                              "code": "A1"
+                            }
+                          ]
+                        }
+                      },
+                      {
+                        "url": "number",
+                        "valueString": "SYNTH-AUTH-1"
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "fullUrl": "https://example.test/fhir/Patient/patient",
+      "resource": {
+        "resourceType": "Patient",
+        "id": "patient",
+        "meta": {
+          "profile": [
+            "http://hl7.org/fhir/us/davinci-pas/StructureDefinition/profile-beneficiary|2.2.1"
+          ]
+        },
+        "identifier": [
+          {
+            "system": "https://example.test/identifiers",
+            "value": "member-1"
+          }
+        ],
+        "name": [
+          {
+            "given": [
+              "Sample"
+            ],
+            "family": "Patient"
+          }
+        ],
+        "gender": "unknown"
+      }
+    },
+    {
+      "fullUrl": "https://example.test/fhir/Organization/payer",
+      "resource": {
+        "resourceType": "Organization",
+        "id": "payer",
+        "meta": {
+          "profile": [
+            "http://hl7.org/fhir/us/davinci-pas/StructureDefinition/profile-insurer|2.2.1"
+          ]
+        },
+        "name": "Sample Payer",
+        "active": true
+      }
+    }
+  ]
+}

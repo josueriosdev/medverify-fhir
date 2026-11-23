@@ -1,0 +1,120 @@
+# Noridian JF Part B scope and CMS WISeR operational guide v7.0.
+# https://med.noridianmedicare.com/web/jfb/cert-reviews/pre-claim/wiser-model
+# https://www.cms.gov/priorities/innovation/files/wiser-provider-supplier-guide.pdf
+# https://virtixhealth.com/wiser_model/wiser-information/gold-carding-program/
+request_start = "2026-01-05"
+service_start = "2026-01-15"
+service_end = "2031-12-31"
+participant = "Virtix Health"
+exemption_start = "2026-07-06"
+
+[[gold_card]]
+effective = "2026-01-05"
+percent = 80
+minimum_requests = 10
+
+[[gold_card]]
+effective = "2027-01-01"
+percent = 90
+minimum_requests = 10
+
+# Appendix A entries use synthetic procedure aliases. An authorized local
+# table can replace these with its own dated code, indication and pairing rows.
+[[appendix_a]]
+code = "Y9001"
+category = "knee_arthroscopy"
+status = "active"
+
+[[appendix_a]]
+code = "Y9002"
+category = "induced_nerve_lesions"
+status = "active"
+
+[[appendix_a]]
+code = "Y9003"
+category = "vagus_nerve_stimulation"
+status = "active"
+requires_indication = true
+
+[[appendix_a]]
+code = "Y9004"
+category = "phrenic_nerve_stimulation"
+status = "active"
+
+[[appendix_a]]
+code = "Y9005"
+category = "electrical_nerve_stimulation"
+status = "active"
+
+[[appendix_a]]
+code = "Y9006"
+category = "incontinence_devices"
+status = "active"
+
+[[appendix_a]]
+code = "Y9007"
+category = "sacral_nerve_stimulation"
+status = "active"
+requires_indication = true
+
+[[appendix_a]]
+code = "Y9008"
+category = "impotence_treatment"
+status = "active"
+
+[[appendix_a]]
+code = "Y9009"
+category = "vertebral_augmentation"
+status = "active"
+
+[[appendix_a]]
+code = "Y9010"
+category = "epidural_steroid_injection"
+status = "active"
+
+[[appendix_a]]
+code = "Y9011"
+category = "cervical_fusion"
+status = "active"
+
+[[appendix_a]]
+code = "Y9012"
+category = "hypoglossal_nerve_stimulation"
+status = "active"
+requires_indication = true
+
+[[appendix_a]]
+code = "Y9013"
+category = "skin_substitutes"
+status = "inactive"
+
+[[appendix_a]]
+code = "Y9014"
+category = "deep_brain_stimulation"
+status = "delayed"
+
+[[appendix_a]]
+code = "Y9015"
+category = "percutaneous_lumbar_decompression"
+status = "delayed"
+
+# ICD-10-CM indications paired with synthetic procedures for integration tests.
+[[appendix_b]]
+primary = "Y9003"
+diagnosis = "G40.919"
+
+[[appendix_b]]
+primary = "Y9007"
+diagnosis = "N39.41"
+
+[[appendix_b]]
+primary = "Y9012"
+diagnosis = "G47.33"
+
+[[appendix_c]]
+primary = "Y9010"
+associated = "Y9016"
+
+[[appendix_c]]
+primary = "Y9011"
+associated = "Y9017"

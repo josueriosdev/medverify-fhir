@@ -1,0 +1,81 @@
+# Dates are the effective dates of the cited policy or amendment in this table.
+# Modification and delay refer to adverse clinical dispositions, not ordinary pending.
+[[rule]]
+state = "TX"
+effective = "2019-09-01"
+plans = ["state_regulated_commercial", "federal_exchange_qhp"]
+decisions = ["denial", "modification"]
+bases = ["medical_necessity", "clinical_judgment"]
+qualification = "licensed_competent_clinician"
+source = "Tex. Ins. Code ch. 4201 and 28 TAC 19.1705-19.1710; https://tcss.legis.texas.gov/resources/IN/htm/IN.4201.htm"
+
+[[rule]]
+state = "TX"
+effective = "2025-09-01"
+issued_or_renewed_from = "2026-01-01"
+plans = ["state_regulated_commercial", "federal_exchange_qhp"]
+decisions = ["denial", "modification"]
+bases = ["medical_necessity", "clinical_judgment"]
+prohibit_automated_contribution = true
+source = "Tex. Ins. Code 4201.002 and 4201.156, SB 815; https://capitol.texas.gov/tlodocs/89R/billtext/html/SB00815F.htm"
+
+[[rule]]
+state = "WA"
+effective = "2026-06-11"
+issued_or_renewed_from = "2024-01-01"
+plans = ["state_regulated_commercial", "federal_exchange_qhp", "state_public_employees"]
+decisions = ["denial"]
+bases = ["medical_necessity"]
+qualification = "licensed_competent_clinician"
+prohibit_automated_only = true
+source = "RCW 48.43.830 and 41.05.845, 2026 c 157; https://lawfilesext.leg.wa.gov/Biennium/2025-26/Htm/Bills/Session%20Laws/Senate/5395-S2.SL.htm"
+
+[[rule]]
+state = "WA"
+effective = "2026-06-11"
+issued_or_renewed_from = "2024-01-01"
+plans = ["state_regulated_commercial", "federal_exchange_qhp", "state_public_employees"]
+decisions = ["modification", "delay"]
+bases = ["medical_necessity", "clinical_judgment"]
+prohibit_automated_only = true
+source = "RCW 48.43.830 and 41.05.845, 2026 c 157; https://lawfilesext.leg.wa.gov/Biennium/2025-26/Htm/Bills/Session%20Laws/Senate/5395-S2.SL.htm"
+
+[[rule]]
+state = "CA"
+effective = "2025-01-01"
+plans = ["state_regulated_commercial", "federal_exchange_qhp"]
+decisions = ["denial", "modification", "delay"]
+bases = ["medical_necessity", "clinical_judgment"]
+qualification = "licensed_competent_clinician"
+prohibit_automated_contribution = true
+source = "Cal. Health & Safety Code 1367.01 and Insurance Code 10123.135, SB 1120, https://leginfo.legislature.ca.gov/faces/billTextClient.xhtml?bill_id=202320240SB1120"
+
+[[rule]]
+state = "CA"
+effective = "2025-01-01"
+plans = ["state_regulated_commercial", "federal_exchange_qhp"]
+decisions = ["approval"]
+bases = ["medical_necessity"]
+qualification = "licensed_competent_clinician"
+prohibit_automated_only = true
+source = "Cal. Health & Safety Code 1367.01 and Insurance Code 10123.135, SB 1120, https://leginfo.legislature.ca.gov/faces/billTextClient.xhtml?bill_id=202320240SB1120"
+
+[[rule]]
+state = "MD"
+effective = "2025-10-01"
+plans = ["state_regulated_commercial", "federal_exchange_qhp", "medicaid_managed_care"]
+decisions = ["denial", "modification"]
+bases = ["medical_necessity", "clinical_judgment"]
+qualification = "maryland_qualified_reviewer"
+prohibit_automated_only = true
+source = "Md. Code, Insurance 15-10B-05.1 and 15-10B-07; https://mgaleg.maryland.gov/mgawebsite/Legislation/Details/hb0820?ys=2025RS"
+
+[[rule]]
+state = "AZ"
+effective = "2026-07-01"
+plans = ["state_regulated_commercial", "federal_exchange_qhp"]
+decisions = ["denial"]
+bases = ["medical_necessity"]
+qualification = "medical_director"
+prohibit_automated_only = true
+source = "A.R.S. 20-3407, HB 2175; https://www.azleg.gov/legtext/57leg/1r/laws/0165.htm"
