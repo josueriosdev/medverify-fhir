@@ -1,21 +1,23 @@
 # MedVerify-FHIR
 
-MedVerify-FHIR builds and reads immutable indexes for National Correct Coding Initiative (NCCI) procedure-to-procedure (PTP) edits and medically unlikely edits (MUEs). The repository includes a catalog of 120 synthetic procedures and a Python command for downloading the CDC FY2027 ICD-10-CM code list.
+MedVerify-FHIR is a Rust library for checking claims against National Correct Coding Initiative (NCCI) procedure-to-procedure (PTP) edits and medically unlikely edits (MUEs). It builds and reads immutable edit indexes. The public dataset contains 120 synthetic procedures.
 
 ## Quickstart
 
-Use a stable Rust toolchain with a native linker, Python 3.11 or later, and uv installed as a Python module. Run the commands from the repository root.
-
-Build both synthetic indexes and run the Rust tests.
+From the repository root, use a current stable Rust toolchain and a native linker to build the synthetic indexes and run the core tests.
 
 ```sh
 cargo run --locked -p medverify-core --bin medverify-index -- synthetic --data data --out target/synthetic
 cargo test --locked -p medverify-core
 ```
 
-The files `target/synthetic/ncci_ptp.bin` and `target/synthetic/ncci_mue.bin` open with `MmapPtpIndex::open` and `MmapMueIndex::open` in `medverify_core::index`. Both readers validate the file before exposing its records. Use a fresh output directory when changing the input edits.
+Open `target/synthetic/ncci_ptp.bin` with `MmapPtpIndex::open` and `target/synthetic/ncci_mue.bin` with `MmapMueIndex::open`. Use a fresh output directory if you change the input data.
 
-Install the CDC code list. The importer verifies the archive's SHA-256 and checks for 74,879 unique codes before publishing the file under `.cache/data/icd10/`.
+Use `ncci::evaluate` to check procedure pairs and audit documented modifier evidence. Use `mue::evaluate` to check units per line or across a service day. Both functions take `claim::ClaimLine` values. Include lines from separate claims when they share a beneficiary, billing provider, service date, and setting. Evaluate coverage and payment separately.
+
+## CDC ICD-10-CM
+
+With Python 3.11 or later and uv installed as a Python module, download the FY2027 code list from the CDC. The importer verifies the archive's SHA-256 and checks for 74,879 unique codes before writing the list locally.
 
 ```sh
 python -m uv sync --locked

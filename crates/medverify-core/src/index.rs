@@ -258,12 +258,37 @@ impl MmapPtpIndex {
     pub fn open(path: impl AsRef<Path>) -> io::Result<Self> {
         open(path.as_ref())
     }
+
+    pub(crate) fn active_on(
+        &self,
+        col1: u32,
+        col2: u32,
+        setting: u8,
+        day: u16,
+    ) -> Option<&NcciPtpRecord> {
+        active_record(self.records(), (col1, col2, setting), day)
+    }
 }
 
 impl MmapMueIndex {
     pub fn open(path: impl AsRef<Path>) -> io::Result<Self> {
         open(path.as_ref())
     }
+
+    pub(crate) fn active_on(&self, code: u32, setting: u8, day: u16) -> Option<&MueRecord> {
+        active_record(self.records(), (code, 0, setting), day)
+    }
+}
+
+fn active_record<R: Record>(rows: &[R], key: Key, day: u16) -> Option<&R> {
+    let start = rows.partition_point(|row| row.key() < key);
+    let candidates = &rows[start..];
+    let end = candidates.partition_point(|row| row.key() == key && row.dates().0 <= day);
+    // A later short or empty interval can coexist with an earlier active one.
+    candidates[..end]
+        .iter()
+        .rev()
+        .find(|row| day < row.dates().1)
 }
 
 fn open<R: Record>(path: &Path) -> io::Result<MappedIndex<R>> {
