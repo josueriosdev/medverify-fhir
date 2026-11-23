@@ -1,0 +1,17 @@
+/target/
+/dist/
+/.cache/
+/.venv/
+/.venv-ft/
+/scripts/ingest_cms.py
+/sandbox/vendor/
+/artifacts/
+__pycache__/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.py[cod]
+*.pyd
+*.so
+*.zip
+*.bin

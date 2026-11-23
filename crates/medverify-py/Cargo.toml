@@ -1,0 +1,16 @@
+[package]
+name = "medverify-py"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+name = "_medverify"
+crate-type = ["cdylib"]
+
+[features]
+abi3 = ["pyo3/abi3-py311"]
+extension-module = ["pyo3/extension-module"]
+
+[dependencies]
+pyo3 = "=0.30.1"

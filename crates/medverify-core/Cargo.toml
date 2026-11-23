@@ -1,0 +1,12 @@
+[package]
+name = "medverify-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+bytemuck = { version = "1.25", features = ["derive"] }
+time = { version = "0.3", default-features = false }
+
+[dev-dependencies]
+proptest = "1.8"

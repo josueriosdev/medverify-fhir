@@ -1,0 +1,8 @@
+cff-version: 1.2.0
+message: "Please cite MedVerify-FHIR if you use this software."
+title: "MedVerify-FHIR"
+type: software
+authors:
+  - name: "MedVerify-FHIR contributors"
+version: 0.1.0
+license: Apache-2.0

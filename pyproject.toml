@@ -1,0 +1,39 @@
+[build-system]
+requires = ["maturin>=1.10,<2"]
+build-backend = "maturin"
+
+[project]
+name = "medverify-fhir"
+version = "0.1.0"
+description = "Deterministic verification for medical claims and FHIR prior authorization"
+readme = "README.md"
+requires-python = ">=3.11"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+
+[dependency-groups]
+dev = ["maturin>=1.10,<2", "mypy", "pre-commit", "pytest", "ruff>=0.17"]
+
+[tool.maturin]
+manifest-path = "crates/medverify-py/Cargo.toml"
+python-source = "python"
+module-name = "medverify._medverify"
+features = ["extension-module"]
+
+[tool.uv]
+cache-keys = [
+    { file = "pyproject.toml" },
+    { file = "Cargo.toml" },
+    { file = "Cargo.lock" },
+    { file = "crates/**/Cargo.toml" },
+    { file = "crates/**/*.rs" },
+    { file = "python/**/*.py" },
+    { file = "python/**/*.pyi" },
+    { file = "python/**/py.typed" },
+]
+
+[tool.mypy]
+strict = true
+
+[tool.ruff]
+target-version = "py311"

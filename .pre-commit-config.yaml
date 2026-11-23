@@ -1,0 +1,23 @@
+repos:
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.30.1
+    hooks:
+      - id: gitleaks
+        language: system
+        entry: bash scripts/check_repo_hygiene.sh --gitleaks
+        stages: [pre-commit]
+  - repo: local
+    hooks:
+      - id: repo-hygiene
+        name: Repository hygiene
+        entry: bash scripts/check_repo_hygiene.sh --index --history
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-commit]
+      - id: commit-message-hygiene
+        name: Commit message hygiene
+        entry: bash scripts/check_repo_hygiene.sh --commit-msg
+        language: system
+        always_run: true
+        stages: [commit-msg]
