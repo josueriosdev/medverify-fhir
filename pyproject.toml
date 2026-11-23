@@ -11,6 +11,9 @@ requires-python = ">=3.11"
 license = "Apache-2.0"
 license-files = ["LICENSE"]
 
+[project.scripts]
+medverify-ingest = "medverify.ingest:main"
+
 [dependency-groups]
 dev = ["maturin>=1.10,<2", "mypy", "pre-commit", "pytest", "ruff>=0.17"]
 

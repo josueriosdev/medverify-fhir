@@ -1,0 +1,11 @@
+code,setting,effective,end_exclusive,max_units,mai
+Y9011,practitioner,2026-10-01,,3,1
+Y9011,hospital,2026-10-01,,2,2
+Y9011,dme,2026-10-01,,1,3
+Y9011,practitioner,2024-02-29,2026-10-01,2,1
+Y9021,practitioner,2026-10-01,,2,2
+Y9021,hospital,2026-10-01,,1,3
+Y9021,dme,2026-10-01,,4,1
+Y9031,practitioner,2026-10-01,,3,3
+Y9031,hospital,2026-10-01,,1,1
+Y9031,dme,2026-10-01,,2,2

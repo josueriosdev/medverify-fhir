@@ -1,0 +1,121 @@
+code,label
+Y9001,Amber tile intake
+Y9002,Amber tile weighing
+Y9003,Amber tile length measurement
+Y9004,Amber tile surface inspection
+Y9005,Amber tile alignment check
+Y9006,Amber tile balance trial
+Y9007,Amber tile position recording
+Y9008,Amber tile repeat measurement
+Y9009,Amber tile inventory count
+Y9010,Amber tile archiving
+Y9011,Cedar block intake
+Y9012,Cedar block weighing
+Y9013,Cedar block length measurement
+Y9014,Cedar block surface inspection
+Y9015,Cedar block alignment check
+Y9016,Cedar block balance trial
+Y9017,Cedar block position recording
+Y9018,Cedar block repeat measurement
+Y9019,Cedar block inventory count
+Y9020,Cedar block archiving
+Y9021,Copper ring intake
+Y9022,Copper ring weighing
+Y9023,Copper ring length measurement
+Y9024,Copper ring surface inspection
+Y9025,Copper ring alignment check
+Y9026,Copper ring balance trial
+Y9027,Copper ring position recording
+Y9028,Copper ring repeat measurement
+Y9029,Copper ring inventory count
+Y9030,Copper ring archiving
+Y9031,Felt strip intake
+Y9032,Felt strip weighing
+Y9033,Felt strip length measurement
+Y9034,Felt strip surface inspection
+Y9035,Felt strip alignment check
+Y9036,Felt strip balance trial
+Y9037,Felt strip position recording
+Y9038,Felt strip repeat measurement
+Y9039,Felt strip inventory count
+Y9040,Felt strip archiving
+Y9041,Glass bead intake
+Y9042,Glass bead weighing
+Y9043,Glass bead length measurement
+Y9044,Glass bead surface inspection
+Y9045,Glass bead alignment check
+Y9046,Glass bead balance trial
+Y9047,Glass bead position recording
+Y9048,Glass bead repeat measurement
+Y9049,Glass bead inventory count
+Y9050,Glass bead archiving
+Y9051,Linen square intake
+Y9052,Linen square weighing
+Y9053,Linen square length measurement
+Y9054,Linen square surface inspection
+Y9055,Linen square alignment check
+Y9056,Linen square balance trial
+Y9057,Linen square position recording
+Y9058,Linen square repeat measurement
+Y9059,Linen square inventory count
+Y9060,Linen square archiving
+Y9061,Maple wedge intake
+Y9062,Maple wedge weighing
+Y9063,Maple wedge length measurement
+Y9064,Maple wedge surface inspection
+Y9065,Maple wedge alignment check
+Y9066,Maple wedge balance trial
+Y9067,Maple wedge position recording
+Y9068,Maple wedge repeat measurement
+Y9069,Maple wedge inventory count
+Y9070,Maple wedge archiving
+Y9071,Paper disc intake
+Y9072,Paper disc weighing
+Y9073,Paper disc length measurement
+Y9074,Paper disc surface inspection
+Y9075,Paper disc alignment check
+Y9076,Paper disc balance trial
+Y9077,Paper disc position recording
+Y9078,Paper disc repeat measurement
+Y9079,Paper disc inventory count
+Y9080,Paper disc archiving
+Y9081,Quartz chip intake
+Y9082,Quartz chip weighing
+Y9083,Quartz chip length measurement
+Y9084,Quartz chip surface inspection
+Y9085,Quartz chip alignment check
+Y9086,Quartz chip balance trial
+Y9087,Quartz chip position recording
+Y9088,Quartz chip repeat measurement
+Y9089,Quartz chip inventory count
+Y9090,Quartz chip archiving
+Y9091,Slate cube intake
+Y9092,Slate cube weighing
+Y9093,Slate cube length measurement
+Y9094,Slate cube surface inspection
+Y9095,Slate cube alignment check
+Y9096,Slate cube balance trial
+Y9097,Slate cube position recording
+Y9098,Slate cube repeat measurement
+Y9099,Slate cube inventory count
+Y9100,Slate cube archiving
+Y9101,Steel pin intake
+Y9102,Steel pin weighing
+Y9103,Steel pin length measurement
+Y9104,Steel pin surface inspection
+Y9105,Steel pin alignment check
+Y9106,Steel pin balance trial
+Y9107,Steel pin position recording
+Y9108,Steel pin repeat measurement
+Y9109,Steel pin inventory count
+Y9110,Steel pin archiving
+Y9111,Wax tablet intake
+Y9112,Wax tablet weighing
+Y9113,Wax tablet length measurement
+Y9114,Wax tablet surface inspection
+Y9115,Wax tablet alignment check
+Y9116,Wax tablet balance trial
+Y9117,Wax tablet position recording
+Y9118,Wax tablet repeat measurement
+Y9119,Wax tablet inventory count
+Y9120,Wax tablet archiving
