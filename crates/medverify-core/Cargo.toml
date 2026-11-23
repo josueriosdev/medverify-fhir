@@ -3,6 +3,7 @@ name = "medverify-core"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+repository.workspace = true
 
 [dependencies]
 bytemuck = { version = "1.25", features = ["derive"] }
