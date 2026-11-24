@@ -609,7 +609,9 @@ def candidate_identity() -> dict[str, str]:
         digest.update(path.encode() + b"\0" + hashlib.sha256((ROOT / path).read_bytes()).hexdigest().encode() + b"\n")
     return {
         "base commit": os.environ.get("MEDVERIFY_CANDIDATE_BASE") or git("rev-parse", "HEAD") or "unknown",
-        "working tree": "clean" if not git("status", "--porcelain") else "uncommitted changes present",
+        "working tree": "clean"
+        if not git("status", "--porcelain", "--", ".", ":(exclude)docs/CONFORMANCE.md")
+        else "uncommitted changes present",
         "files": str(len(files)),
         "content digest": digest.hexdigest() if files else "unknown",
     }

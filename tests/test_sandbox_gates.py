@@ -536,6 +536,38 @@ def test_harness_error_keeps_partial_reports(tmp_path, stubbed_kits, monkeypatch
     assert "Overall verdict: **fail**" in doc.read_text(encoding="utf-8")
 
 
+@pytest.mark.parametrize(
+    ("edits", "state"),
+    [
+        ({"docs/CONFORMANCE.md": "regenerated\n"}, "clean"),
+        ({"scripts/tool.py": "changed\n"}, "uncommitted changes present"),
+        ({"notes.txt": "new\n"}, "uncommitted changes present"),
+        ({"docs/CONFORMANCE.md": "regenerated\n", "scripts/tool.py": "changed\n"}, "uncommitted changes present"),
+    ],
+    ids=["report-only", "tracked-source", "untracked-file", "report-and-source"],
+)
+def test_candidate_identity_ignores_only_the_generated_report(tmp_path, monkeypatch, edits, state):
+    def git(*args):
+        subprocess.run(["git", *args], cwd=tmp_path, check=True, capture_output=True)
+
+    for name, text in {"docs/CONFORMANCE.md": "report\n", "scripts/tool.py": "print()\n"}.items():
+        (tmp_path / name).parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / name).write_text(text, encoding="utf-8")
+    git("init", "-q")
+    git("add", ".")
+    git("-c", "user.name=test", "-c", "user.email=test@example.org", "-c", "commit.gpgsign=false",
+        "-c", "core.hooksPath=/dev/null", "commit", "-q", "-m", "base")
+    monkeypatch.setattr(run_inferno, "ROOT", tmp_path)
+    before = run_inferno.candidate_identity()
+    assert before["working tree"] == "clean"
+    for name, text in edits.items():
+        (tmp_path / name).write_text(text, encoding="utf-8")
+    after = run_inferno.candidate_identity()
+    assert after["working tree"] == state
+    if state == "clean":
+        assert after["content digest"] == before["content digest"]
+
+
 # ---------------------------------------------------------------- PAS handshake evidence
 
 
