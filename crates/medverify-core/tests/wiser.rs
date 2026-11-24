@@ -785,3 +785,31 @@ fn cervical_stabilization_requires_evidence_for_its_own_indication() {
         [FusionFinding::IndicationEvidence]
     );
 }
+
+#[test]
+fn diagnosis_matching_ignores_dots_and_case() {
+    let policy = Policy::washington_synthetic();
+    let dotted = service("Y9012");
+    let expected = policy.route(&dotted, Stage::Claim(None));
+    assert_ne!(expected, Route::OutOfScope);
+    for diagnoses in [&["G4733"][..], &["g4733"], &["g47.33"]] {
+        let service = Service {
+            diagnoses,
+            ..dotted
+        };
+        assert_eq!(policy.route(&service, Stage::Claim(None)), expected);
+    }
+    let other = Service {
+        diagnoses: &["G40919"],
+        ..dotted
+    };
+    assert_eq!(policy.route(&other, Stage::Claim(None)), Route::OutOfScope);
+
+    let table = include_str!("../../../policy/wa_wiser.toml").replace("G47.33", ".");
+    let blank = Policy::from_toml(&table).unwrap();
+    let service = Service {
+        diagnoses: &["."],
+        ..dotted
+    };
+    assert_eq!(blank.route(&service, Stage::Claim(None)), Route::OutOfScope);
+}

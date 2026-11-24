@@ -63,6 +63,16 @@ fn optional_date<'de, D: serde::Deserializer<'de>>(
     date(deserializer).map(Some)
 }
 
+fn same_diagnosis(left: &str, right: &str) -> bool {
+    fn normalized(value: &str) -> impl Iterator<Item = u8> + '_ {
+        value
+            .bytes()
+            .filter(|&byte| byte != b'.')
+            .map(|byte| byte.to_ascii_uppercase())
+    }
+    normalized(left).next().is_some() && normalized(left).eq(normalized(right))
+}
+
 fn procedure<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<ProcedureCode, D::Error> {
     ProcedureCode::new(&String::deserialize(deserializer)?)
         .ok_or_else(|| serde::de::Error::custom("invalid procedure code"))
@@ -316,7 +326,7 @@ impl Policy {
             if service
                 .diagnoses
                 .iter()
-                .any(|diagnosis| diagnosis.eq_ignore_ascii_case(&entry.diagnosis))
+                .any(|diagnosis| same_diagnosis(diagnosis, &entry.diagnosis))
             {
                 if entry.excluded {
                     return Route::OutOfScope;
