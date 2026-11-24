@@ -30,6 +30,9 @@ manifest-path = "crates/medverify-py/Cargo.toml"
 python-source = "python"
 module-name = "medverify._medverify"
 features = ["extension-module"]
+# medverify-core compiles both policy tables in with include_str!, so an sdist without them
+# cannot build.
+include = [{ path = "policy/*.toml", format = "sdist" }]
 
 [tool.uv]
 cache-keys = [
@@ -38,6 +41,7 @@ cache-keys = [
     { file = "Cargo.lock" },
     { file = "crates/**/Cargo.toml" },
     { file = "crates/**/*.rs" },
+    { file = "policy/*.toml" },
     { file = "python/**/*.py" },
     { file = "python/**/*.pyi" },
     { file = "python/**/py.typed" },

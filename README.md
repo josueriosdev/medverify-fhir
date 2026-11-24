@@ -46,6 +46,32 @@ Download and verify the CDC's FY2027 ICD-10-CM code list.
 python -m uv run --locked medverify-ingest icd10 --release FY2027 --out .cache/data/icd10
 ```
 
+## FHIR sandbox
+
+A Docker Compose sandbox runs HAPI FHIR R4 8.12.0-2 on PostgreSQL 16, the Nirmitee Go payer servers for Da Vinci CRD 2.2.1, DTR 2.2.0 and PAS 2.2.1 behind a test TLS proxy, and the official Inferno server suites from the CRD 0.15.0, DTR 0.18.1 and PAS 0.16.0 test kits. Images are pinned by digest and sources by commit in [sandbox/upstreams.lock](sandbox/upstreams.lock). It needs Docker Engine with Compose and buildx, and network access while building and validating.
+
+```sh
+python -m uv run --locked python scripts/fetch_sandbox.py --locked
+docker compose -f sandbox/docker-compose.yaml up --build -d --wait
+python -m uv run --locked python scripts/seed_hapi.py --patients 50 --state Washington --seed 42
+bash scripts/reset_sandbox.sh --create-template
+python -m uv run --locked python scripts/check_reset.py --cycles 2 --expected-patients 50
+python -m uv run --locked python scripts/run_inferno.py --crd 2.2.1 --dtr 2.2.0 --pas 2.2.1 --require-pass
+```
+
+The seed loads 50 synthetic Washington patients from Synthea with fixed seeds and a fixed simulation date, replaces NPIs with synthetic values, removes licensed code displays, and records a fingerprint of the server content. `bash scripts/reset_sandbox.sh` restores that state: it stops HAPI and the payer servers, drains database connections, recreates the HAPI database from the snapshot, and restarts the payer servers with empty memory. A refreshed snapshot replaces the old one only once it is complete, and a restore interrupted at any step can simply be run again. The seed and reset scripts refuse to write unless their target is the port this compose project publishes. [Latest Inferno results](docs/CONFORMANCE.md)
+
+| Service | Host address | Port variable |
+|---|---|---|
+| HAPI FHIR R4 | `http://127.0.0.1:18080/fhir` | `MEDVERIFY_HAPI_PORT` |
+| CRD, DTR and PAS over test TLS | `https://127.0.0.1:18443` with Host `crd.medverify.test`, `dtr.medverify.test` or `pas.medverify.test` | `MEDVERIFY_TLS_PORT` |
+| PAS test-only control routes | `http://127.0.0.1:18085/admin/` | `MEDVERIFY_PAS_PORT` |
+| Inferno CRD, DTR and PAS APIs | `http://127.0.0.1:14567`, `14568` and `14569` | `MEDVERIFY_INFERNO_CRD_PORT`, `_DTR_PORT`, `_PAS_PORT` |
+
+Every port binds to 127.0.0.1. The PAS control routes exist only for unattended Inferno runs; the server refuses them through the proxy. To run a second, disposable stack beside an existing one, set `COMPOSE_PROJECT_NAME` and a different value for every port variable before running the commands above; seed and reset records are kept per project under `.cache/sandbox/`.
+
+These suites exercise the sandbox payer servers. MedVerify's own PAS 2.2.1 validator is tested by `cargo test`. `bash scripts/check_sdist.sh` proves the source distribution builds and installs on its own.
+
 ## License
 
 [Apache-2.0](LICENSE). See [LICENSING.md](LICENSING.md) for data and third-party rights.

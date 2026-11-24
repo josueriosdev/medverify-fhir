@@ -259,6 +259,10 @@
             {
               "system": "http://terminology.hl7.org/CodeSystem/subscriber-relationship",
               "code": "self"
+            },
+            {
+              "system": "https://codesystem.x12.org/005010/1069",
+              "code": "18"
             }
           ]
         },

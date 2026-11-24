@@ -355,6 +355,23 @@ fn totals_are_checked_and_duplicate_ids_are_rejected() {
     );
 }
 
+#[test]
+fn property_case_count_meets_the_required_floor() {
+    // The properties below take their case count from PROPTEST_CASES. CI also sets this
+    // floor, so a run that silently drops back to proptest's default of 256 fails here.
+    let Ok(floor) = std::env::var("MEDVERIFY_MIN_PROPTEST_CASES") else {
+        return;
+    };
+    let floor: u32 = floor
+        .parse()
+        .expect("MEDVERIFY_MIN_PROPTEST_CASES is a number");
+    let cases = ProptestConfig::default().cases;
+    assert!(
+        cases >= floor,
+        "properties run {cases} cases, floor is {floor}"
+    );
+}
+
 proptest! {
     #[test]
     fn claim_permutation_preserves_findings(order in any::<[u16; 7]>(), flip_modifiers in any::<bool>()) {

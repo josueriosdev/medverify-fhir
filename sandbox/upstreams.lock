@@ -1,0 +1,116 @@
+# Pinned upstreams for the local FHIR sandbox.
+#
+# scripts/fetch_sandbox.py --locked is the only consumer that writes anything: it downloads each
+# source archive and artifact listed here, refuses any byte that does not match the recorded
+# SHA-256, checks that every image and git build context in sandbox/docker-compose.yaml carries
+# exactly the reference recorded here, and checks that each Inferno kit tag still names the
+# recorded commit. Changing a pin means editing this file and the compose file together.
+
+version = 1
+
+[images.postgres]
+reference = "postgres:16-alpine"
+digest = "sha256:f2f98726820d0342055351c6e9d36e705f5bfffb3dd53ff556325114b08afb6d"
+
+[images.hapi]
+reference = "hapiproject/hapi:v8.12.0-2"
+digest = "sha256:0ff86aac4c7bd13a1ee226444a70263bb46ed1c28ef543c30a44f865b80ca04e"
+
+[images.caddy]
+reference = "caddy:2-alpine"
+digest = "sha256:003a97808e781aa9f7e75cc2f43d34d461099031faf5e20faefb9f61126836f0"
+
+[images.busybox]
+reference = "busybox:1.37-musl"
+digest = "sha256:f6a95d611e0a8780fabdb2aec43e31275b2720dfefa3e41b16835bfc42454478"
+
+[images.redis]
+reference = "redis:7-alpine"
+digest = "sha256:7f7d30b7fdd09467bac58198a1f166dd69789d348d4fe859cccb20e0cf287fbe"
+
+[images.inferno-validator]
+reference = "infernocommunity/inferno-resource-validator:latest"
+digest = "sha256:92ec7a22e3c6f4cdf5eed9db210150a93531034e100c7521e4930c975b3c9058"
+
+[images.fhirpath]
+reference = "infernocommunity/fhirpath-service:latest"
+digest = "sha256:8bfdd53894e6708ad4e663175c0805281c968777ac732a9688780c275df71636"
+
+[images.java]
+reference = "eclipse-temurin:21-jre-alpine"
+digest = "sha256:5d7689f47d670aca766b9503a70bccc2d73b4eb9221ae8f714ae958313c4ce70"
+
+# Bases named by tag in the upstream Dockerfiles. The compose file maps each FROM reference to
+# the digest below through a named build context, and fetch_sandbox.py checks every FROM line
+# of every locked Dockerfile against this list.
+[images.golang]
+reference = "golang:1.26-alpine"
+digest = "sha256:ecb67f987aa1a57794c91d19ade7ae0209f2f0f5496aaef9e6ae85ddf92d02ab"
+usage = "build-base"
+
+[images.distroless-static]
+reference = "gcr.io/distroless/static-debian12:nonroot"
+digest = "sha256:afa5c872c891853ca7fcf1f12c3edb23f7eeef36189728842dd51042ff57f7ab"
+usage = "build-base"
+
+[images.ruby]
+reference = "ruby:3.3.6"
+digest = "sha256:347edd0c70ee08d87de9f01b99de2f14a64cedb5d1bfb38457dfe8cd0bf113c5"
+usage = "build-base"
+
+# Nirmitee payer servers, built from source with their Go Dockerfiles. CRD and DTR copy files
+# from spec/ at the repository root, so they build from the root with go/Dockerfile; PAS bundles
+# its rules into the binary and builds from go/.
+[sources.crd-server]
+repository = "https://github.com/nirmitee-tech/davinci-crd-server"
+commit = "fd2b148323d4e05abaebea5f51ccc42beeb09529"
+archive_sha256 = "612dc331d01af140aa3146b8f81b5cee3a6e61eec0b71e347e55f3241db80b94"
+tree_sha256 = "c0a331f45fcd300cd45273f7f0679cd7787432e5587a09115a935d29932b62ab"
+directory = "vendor/davinci-crd-server"
+implementation_guide = "Da Vinci CRD 2.2.1"
+
+[sources.dtr-server]
+repository = "https://github.com/nirmitee-tech/davinci-dtr-server"
+commit = "566b2243fe183bb1e68d24113a7d8378ba074ec8"
+archive_sha256 = "c29ae04b3aa20d07922cbfb8ab51d7c094d00d3ea54d1c124b414e870d6562e9"
+tree_sha256 = "59f35304030d255b38e9e8cc4a97e99807a2d21086940b859b7053c6bf04a90f"
+directory = "vendor/davinci-dtr-server"
+implementation_guide = "Da Vinci DTR 2.2.0"
+
+[sources.pas-server]
+repository = "https://github.com/nirmitee-tech/davinci-pas-server"
+commit = "2ad7923f745ee6bb668458e08b4d14b0581c8247"
+archive_sha256 = "07c6ae75e3c4d30d69dcb05afcd4dbc3aa81c3abc1011955f316dc2b10c503ae"
+tree_sha256 = "7982bf08235097d3f26d542c0d4e501daaaf64fc7d8021dd224a8d2acb2dbc7c"
+directory = "vendor/davinci-pas-server"
+implementation_guide = "Da Vinci PAS 2.2.1"
+
+# Official Inferno test kits. Docker builds them straight from the pinned commit so the kits'
+# own Dockerfiles run unchanged; some kit file names cannot be checked out on Windows.
+[kits.crd]
+repository = "https://github.com/inferno-framework/davinci-crd-test-kit"
+tag = "v0.15.0"
+commit = "86be7f4bf6817960aa204f8ce134cea466bd73d2"
+suite = "crd_server_v221"
+implementation_guide_version = "2.2.1"
+
+[kits.dtr]
+repository = "https://github.com/inferno-framework/davinci-dtr-test-kit"
+tag = "v0.18.1"
+commit = "ab0216748581fa57a918f18fd1f04f92896bd4d0"
+suite = "dtr_payer_server_v220"
+implementation_guide_version = "2.2.0"
+
+[kits.pas]
+repository = "https://github.com/inferno-framework/davinci-pas-test-kit"
+tag = "v0.16.0"
+commit = "1db14e7899d0519138ed9ac72de8ad2c996c10ac"
+suite = "davinci_pas_server_suite_v221"
+implementation_guide_version = "2.2.1"
+
+[artifacts.synthea]
+url = "https://github.com/synthetichealth/synthea/releases/download/v4.0.0/synthea-with-dependencies.jar"
+tag = "v4.0.0"
+commit = "0185c09ea9d10a822c6f5f3ef9bdcbcbe960c813"
+sha256 = "ed43c20ad40ba5c3bc724503a5af032715fe3c491620b766148e7c2361e6ecc1"
+path = "vendor/synthea/synthea-with-dependencies.jar"

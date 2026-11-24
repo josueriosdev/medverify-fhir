@@ -1,0 +1,398 @@
+# Local FHIR sandbox: HAPI FHIR R4 on PostgreSQL, the Nirmitee CRD/DTR/PAS payer servers behind
+# test TLS, and the official Inferno server suites. Every image, build base and source is pinned
+# in sandbox/upstreams.lock; run scripts/fetch_sandbox.py --locked before building.
+#
+# Host ports bind to 127.0.0.1 only and can be moved with the MEDVERIFY_*_PORT variables, so a
+# disposable stack (its own COMPOSE_PROJECT_NAME and ports) can run beside a developer stack.
+# Containers reach each other by service name, so Inferno callbacks, JWKS lookups and
+# subscription notifications never leave the compose network.
+
+name: medverify-sandbox
+
+x-probe: &probe
+  # HAPI, the payer servers and the validators ship without a shell. A static busybox shared
+  # read-only from the probe service gives each of them a real health check.
+  - probe-bin:/probe:ro
+
+x-go-bases: &go-bases
+  # The Nirmitee Dockerfiles name their bases by tag. Named build contexts substitute the locked
+  # digests for those FROM lines without editing the upstream sources.
+  "golang:1.26-alpine": docker-image://golang:1.26-alpine@sha256:ecb67f987aa1a57794c91d19ade7ae0209f2f0f5496aaef9e6ae85ddf92d02ab
+  "gcr.io/distroless/static-debian12:nonroot": docker-image://gcr.io/distroless/static-debian12:nonroot@sha256:afa5c872c891853ca7fcf1f12c3edb23f7eeef36189728842dd51042ff57f7ab
+
+x-ruby-base: &ruby-base
+  "ruby:3.3.6": docker-image://ruby:3.3.6@sha256:347edd0c70ee08d87de9f01b99de2f14a64cedb5d1bfb38457dfe8cd0bf113c5
+
+x-inferno-env: &inferno-env
+  FHIRPATH_URL: http://fhirpath:6789
+
+# Inferno trusts the sandbox test CA on top of the public roots, so its TLS tests verify the
+# payer servers' certificates instead of skipping verification. Only the exported public root
+# certificate is mounted; the CA keys stay in the tls service's volume. Migrations run before
+# puma because the kits keep their SQLite database in a fresh named volume.
+x-web-command: &web-command
+  - sh
+  - -c
+  - >-
+    cat /etc/ssl/certs/ca-certificates.crt /medverify/ca/root.crt > /tmp/medverify-ca.pem &&
+    export SSL_CERT_FILE=/tmp/medverify-ca.pem &&
+    bundle exec inferno migrate && exec bundle exec puma
+
+x-worker-command: &worker-command
+  - sh
+  - -c
+  - >-
+    cat /etc/ssl/certs/ca-certificates.crt /medverify/ca/root.crt > /tmp/medverify-ca.pem &&
+    export SSL_CERT_FILE=/tmp/medverify-ca.pem &&
+    exec bundle exec sidekiq -r ./worker.rb
+
+x-inferno-health: &inferno-health
+  test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "http://127.0.0.1:4567/api/test_suites"]
+  interval: 10s
+  timeout: 10s
+  retries: 60
+  start_period: 60s
+
+services:
+  probe:
+    image: busybox:1.37-musl@sha256:f6a95d611e0a8780fabdb2aec43e31275b2720dfefa3e41b16835bfc42454478
+    command: ["sleep", "2147483647"]
+    volumes:
+      - probe-bin:/bin
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:16-alpine@sha256:f2f98726820d0342055351c6e9d36e705f5bfffb3dd53ff556325114b08afb6d
+    environment:
+      POSTGRES_USER: hapi
+      POSTGRES_PASSWORD: ${MEDVERIFY_SANDBOX_DB_PASSWORD:-medverify-sandbox}
+      POSTGRES_DB: hapi
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "hapi", "-d", "hapi"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+    restart: unless-stopped
+
+  hapi:
+    image: hapiproject/hapi:v8.12.0-2@sha256:0ff86aac4c7bd13a1ee226444a70263bb46ed1c28ef543c30a44f865b80ca04e
+    depends_on:
+      postgres:
+        condition: service_healthy
+      probe:
+        condition: service_started
+    environment:
+      spring.datasource.url: jdbc:postgresql://postgres:5432/hapi
+      spring.datasource.username: hapi
+      spring.datasource.password: ${MEDVERIFY_SANDBOX_DB_PASSWORD:-medverify-sandbox}
+      spring.datasource.driverClassName: org.postgresql.Driver
+      spring.jpa.properties.hibernate.dialect: ca.uhn.fhir.jpa.model.dialect.HapiFhirPostgresDialect
+      hapi.fhir.fhir_version: R4
+      # Bounded heaps: left to its defaults each JVM sizes itself from the whole WSL or CI VM,
+      # and HAPI plus three validators then exhaust it.
+      JAVA_TOOL_OPTIONS: -Xmx2g
+      # Synthea bundles point at resource types the seed leaves out, such as Claim.
+      hapi.fhir.enforce_referential_integrity_on_write: "false"
+      # The reset check reads the server straight after each mutation, so cached searches
+      # would hide the very changes it plants.
+      hapi.fhir.reuse_cached_search_results_millis: "0"
+      hapi.fhir.max_page_size: "1000"
+      hapi.fhir.cr.enabled: "false"
+      hapi.fhir.mdm_enabled: "false"
+    mem_limit: 3g
+    ports:
+      - "127.0.0.1:${MEDVERIFY_HAPI_PORT:-18080}:8080"
+    volumes: *probe
+    healthcheck:
+      test: ["CMD", "/probe/busybox", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/fhir/metadata"]
+      interval: 10s
+      timeout: 10s
+      retries: 60
+      start_period: 120s
+    restart: unless-stopped
+
+  crd:
+    build:
+      context: vendor/davinci-crd-server
+      dockerfile: go/Dockerfile
+      additional_contexts: *go-bases
+    image: medverify-sandbox/crd-server:fd2b148
+    depends_on:
+      probe:
+        condition: service_started
+    environment:
+      CRD_TRUSTED_ISSUERS: http://inferno-crd:4567/custom/crd_server_v221
+      CRD_PUBLIC_BASE_URLS: https://crd.medverify.test
+    volumes: *probe
+    healthcheck:
+      test: ["CMD", "/probe/busybox", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8081/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+    restart: unless-stopped
+
+  dtr:
+    build:
+      context: vendor/davinci-dtr-server
+      dockerfile: go/Dockerfile
+      additional_contexts: *go-bases
+    image: medverify-sandbox/dtr-server:566b224
+    depends_on:
+      probe:
+        condition: service_started
+    environment:
+      DTR_PUBLIC_BASE_URL: https://dtr.medverify.test
+      DTR_TRUSTED_JWKS_URLS: >-
+        http://inferno-dtr:4567/custom/smart_stu2/.well-known/jwks.json,http://inferno-dtr:4567/jwks.json
+    volumes: *probe
+    healthcheck:
+      test: ["CMD", "/probe/busybox", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8183/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+    restart: unless-stopped
+
+  pas:
+    build:
+      context: vendor/davinci-pas-server/go
+      additional_contexts: *go-bases
+    image: medverify-sandbox/pas-server:2ad7923
+    depends_on:
+      probe:
+        condition: service_started
+    environment:
+      PAS_PUBLIC_BASE_URL: https://pas.medverify.test
+      # Test-only control routes. The server refuses them through any proxy, so only the
+      # loopback port below reaches them; run_inferno.py uses them to resolve Inferno waits.
+      PAS_ADMIN_ENABLED: "true"
+    ports:
+      - "127.0.0.1:${MEDVERIFY_PAS_PORT:-18085}:8085"
+    volumes: *probe
+    healthcheck:
+      test: ["CMD", "/probe/busybox", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8085/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+    restart: unless-stopped
+
+  tls:
+    image: caddy:2-alpine@sha256:003a97808e781aa9f7e75cc2f43d34d461099031faf5e20faefb9f61126836f0
+    depends_on:
+      crd:
+        condition: service_healthy
+      dtr:
+        condition: service_healthy
+      pas:
+        condition: service_healthy
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+    ports:
+      - "127.0.0.1:${MEDVERIFY_TLS_PORT:-18443}:443"
+    networks:
+      default:
+        aliases:
+          - crd.medverify.test
+          - dtr.medverify.test
+          - pas.medverify.test
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          test -s /data/caddy/pki/authorities/local/root.crt &&
+          wget -q -O /dev/null http://127.0.0.1:2019/config/
+      interval: 5s
+      timeout: 5s
+      retries: 30
+    restart: unless-stopped
+
+  ca-export:
+    # Copies only the public root certificate out of Caddy's data volume. Caddy keeps the root and
+    # intermediate signing keys beside it, so no Inferno container mounts caddy-data itself.
+    image: busybox:1.37-musl@sha256:f6a95d611e0a8780fabdb2aec43e31275b2720dfefa3e41b16835bfc42454478
+    depends_on:
+      tls:
+        condition: service_healthy
+    volumes:
+      - caddy-data:/caddy:ro
+      - ca-public:/ca
+    command:
+      - sh
+      - -c
+      - >-
+        cp /caddy/caddy/pki/authorities/local/root.crt /ca/root.crt.next &&
+        chmod 0444 /ca/root.crt.next && mv -f /ca/root.crt.next /ca/root.crt &&
+        exec sleep 2147483647
+    healthcheck:
+      test: ["CMD", "test", "-s", "/ca/root.crt"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine@sha256:7f7d30b7fdd09467bac58198a1f166dd69789d348d4fe859cccb20e0cf287fbe
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+    restart: unless-stopped
+
+  fhirpath:
+    image: infernocommunity/fhirpath-service:latest@sha256:8bfdd53894e6708ad4e663175c0805281c968777ac732a9688780c275df71636
+    restart: unless-stopped
+
+  validator-crd: &validator
+    image: infernocommunity/inferno-resource-validator:latest@sha256:92ec7a22e3c6f4cdf5eed9db210150a93531034e100c7521e4930c975b3c9058
+    depends_on:
+      probe:
+        condition: service_started
+    environment:
+      # Negative keeps validator sessions for the whole run instead of reloading IGs per test.
+      SESSION_CACHE_DURATION: "-1"
+      JAVA_TOOL_OPTIONS: -Xmx3g
+    mem_limit: 4g
+    volumes: *probe
+    healthcheck:
+      test: ["CMD", "/probe/busybox", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:3500/validator/version"]
+      interval: 10s
+      timeout: 10s
+      retries: 60
+      start_period: 60s
+    restart: unless-stopped
+
+  validator-dtr: *validator
+
+  validator-pas: *validator
+
+  inferno-crd:
+    build:
+      context: https://github.com/inferno-framework/davinci-crd-test-kit.git#86be7f4bf6817960aa204f8ce134cea466bd73d2
+      additional_contexts: *ruby-base
+    image: medverify-sandbox/inferno-crd:v0.15.0
+    depends_on: &inferno-deps
+      redis:
+        condition: service_healthy
+      ca-export:
+        condition: service_healthy
+      fhirpath:
+        condition: service_started
+    environment: &inferno-crd-env
+      <<: *inferno-env
+      INFERNO_HOST: http://inferno-crd:4567
+      REDIS_URL: redis://redis:6379/0
+      FHIR_RESOURCE_VALIDATOR_URL: http://validator-crd:3500
+    command: *web-command
+    volumes: &inferno-crd-volumes
+      - inferno-crd-data:/opt/inferno/data
+      - ca-public:/medverify/ca:ro
+    ports:
+      - "127.0.0.1:${MEDVERIFY_INFERNO_CRD_PORT:-14567}:4567"
+    healthcheck: *inferno-health
+    restart: unless-stopped
+
+  inferno-crd-worker:
+    # Same image as the web service, which builds it; a second build of one tag races.
+    image: medverify-sandbox/inferno-crd:v0.15.0
+    pull_policy: never
+    depends_on:
+      inferno-crd:
+        condition: service_healthy
+    environment: *inferno-crd-env
+    command: *worker-command
+    volumes: *inferno-crd-volumes
+    restart: unless-stopped
+
+  inferno-dtr:
+    build:
+      context: https://github.com/inferno-framework/davinci-dtr-test-kit.git#ab0216748581fa57a918f18fd1f04f92896bd4d0
+      additional_contexts: *ruby-base
+    image: medverify-sandbox/inferno-dtr:v0.18.1
+    depends_on: *inferno-deps
+    environment: &inferno-dtr-env
+      <<: *inferno-env
+      INFERNO_HOST: http://inferno-dtr:4567
+      REDIS_URL: redis://redis:6379/1
+      FHIR_RESOURCE_VALIDATOR_URL: http://validator-dtr:3500
+    command: *web-command
+    volumes: &inferno-dtr-volumes
+      - inferno-dtr-data:/opt/inferno/data
+      - ca-public:/medverify/ca:ro
+    ports:
+      - "127.0.0.1:${MEDVERIFY_INFERNO_DTR_PORT:-14568}:4567"
+    healthcheck: *inferno-health
+    restart: unless-stopped
+
+  inferno-dtr-worker:
+    image: medverify-sandbox/inferno-dtr:v0.18.1
+    pull_policy: never
+    depends_on:
+      inferno-dtr:
+        condition: service_healthy
+    environment: *inferno-dtr-env
+    command: *worker-command
+    volumes: *inferno-dtr-volumes
+    restart: unless-stopped
+
+  inferno-pas:
+    build:
+      context: https://github.com/inferno-framework/davinci-pas-test-kit.git#1db14e7899d0519138ed9ac72de8ad2c996c10ac
+      additional_contexts: *ruby-base
+    image: medverify-sandbox/inferno-pas:v0.16.0
+    depends_on: *inferno-deps
+    environment: &inferno-pas-env
+      <<: *inferno-env
+      INFERNO_HOST: http://inferno-pas:4567
+      REDIS_URL: redis://redis:6379/2
+      FHIR_RESOURCE_VALIDATOR_URL: http://validator-pas:3500
+    command: *web-command
+    volumes: &inferno-pas-volumes
+      - inferno-pas-data:/opt/inferno/data
+      - ca-public:/medverify/ca:ro
+    ports:
+      - "127.0.0.1:${MEDVERIFY_INFERNO_PAS_PORT:-14569}:4567"
+    healthcheck: *inferno-health
+    restart: unless-stopped
+
+  inferno-pas-worker:
+    image: medverify-sandbox/inferno-pas:v0.16.0
+    pull_policy: never
+    depends_on:
+      inferno-pas:
+        condition: service_healthy
+    environment: *inferno-pas-env
+    command: *worker-command
+    volumes: *inferno-pas-volumes
+    restart: unless-stopped
+
+  synthea:
+    # Run on demand by scripts/seed_hapi.py. The tar stream of FHIR bundles is the only stdout;
+    # Synthea's own log goes to stderr. No network: generation is fully offline.
+    image: eclipse-temurin:21-jre-alpine@sha256:5d7689f47d670aca766b9503a70bccc2d73b4eb9221ae8f714ae958313c4ce70
+    profiles: ["seed"]
+    network_mode: none
+    working_dir: /tmp
+    environment:
+      JAVA_TOOL_OPTIONS: -Xmx2g
+    mem_limit: 3g
+    volumes:
+      - ./vendor/synthea/synthea-with-dependencies.jar:/opt/synthea/synthea.jar:ro
+    entrypoint:
+      - sh
+      - -c
+      - >-
+        java -jar /opt/synthea/synthea.jar "$$@" --exporter.baseDirectory=/tmp/synthea/ 1>&2 &&
+        tar -C /tmp/synthea/fhir -cf - .
+      - synthea
+
+volumes:
+  probe-bin:
+  postgres-data:
+  caddy-data:
+  ca-public:
+  inferno-crd-data:
+  inferno-dtr-data:
+  inferno-pas-data:

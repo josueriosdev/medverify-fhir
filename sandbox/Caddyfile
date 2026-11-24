@@ -1,0 +1,25 @@
+# Test TLS in front of the payer servers so the Inferno TLS checks exercise a real handshake.
+# Caddy's internal CA signs every certificate; only containers that mount caddy-data trust it.
+{
+	skip_install_trust
+	pki {
+		ca local {
+			name "MedVerify Sandbox Test CA"
+		}
+	}
+}
+
+crd.medverify.test {
+	tls internal
+	reverse_proxy crd:8081
+}
+
+dtr.medverify.test {
+	tls internal
+	reverse_proxy dtr:8183
+}
+
+pas.medverify.test {
+	tls internal
+	reverse_proxy pas:8085
+}

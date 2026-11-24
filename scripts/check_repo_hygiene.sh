@@ -15,7 +15,9 @@ check_path() {
     case "$path" in
         */agents.md|agents.md|*/claude.md|claude.md|*/gemini.md|gemini.md|\
         docs/internal/*|scripts/ingest_cms.py|*.zip|*.bin|.cache/*|\
-        *.local.md|*/.claude/*|.claude/*|*/.codex/*|.codex/*)
+        *.local.md|*/.claude/*|.claude/*|*/.codex/*|.codex/*|\
+        memory-bank/*|*/memory-bank/*|sandbox/vendor/*|artifacts/*|target/*|dist/*|\
+        *.tar|*.tar.gz|*.tgz|*.jar|*.whl|*.db|*.sqlite)
             reject "forbidden path $1" ;;
     esac
 }
@@ -117,6 +119,24 @@ self_test() (
         reject "force-added instruction file was accepted"
     fi
     git rm -q --cached AGENTS.md
+    local forbidden
+    # Agent notes, internal documents, fetched vendor trees, raw archives and run reports
+    # must never reach a commit, even when force-added past .gitignore.
+    for forbidden in memory-bank/activeContext.md docs/internal/PLAN.md \
+        sandbox/vendor/davinci-pas-server/go/main.go data/raw/cms-ptp.zip \
+        sandbox/vendor/synthea/synthea-with-dependencies.jar artifacts/inferno/pas.json; do
+        mkdir -p "$(dirname "$forbidden")"
+        printf 'fixture\n' > "$forbidden"
+        if bash "$script" --candidate; then
+            reject "candidate file $forbidden was accepted"
+        fi
+        git add -f -- "$forbidden"
+        if bash "$script" --index; then
+            reject "force-added $forbidden was accepted"
+        fi
+        git rm -q --cached -- "$forbidden"
+        rm -- "$forbidden"
+    done
     printf 'clean\n' > clean.txt
     git add -- clean.txt
     printf 'TO%s\n' 'DO' > clean.txt

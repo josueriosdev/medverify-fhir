@@ -108,6 +108,17 @@ fn extension<'a>(value: &'a Value, base: &str, name: &str) -> Result<Option<&'a 
 }
 
 fn profile(value: &Value, kind: &'static str, name: &'static str) -> Result<(), Error> {
+    profile_among(value, kind, name, &[name])
+}
+
+/// Like `profile`, for roles whose published target profiles are interchangeable for the resource,
+/// reporting `name` when the resource declares only PAS profiles outside `accepted`.
+fn profile_among(
+    value: &Value,
+    kind: &'static str,
+    name: &'static str,
+    accepted: &[&str],
+) -> Result<(), Error> {
     if value["resourceType"] != kind || value.get("meta").is_some_and(|meta| !meta.is_object()) {
         return Err(Error::Profile(name));
     }
@@ -118,7 +129,7 @@ fn profile(value: &Value, kind: &'static str, name: &'static str) -> Result<(), 
             let url = required_text(url).ok_or(Error::Profile(name))?;
             if let Some(local) = url.strip_prefix(PAS) {
                 any_pas = true;
-                if local == name || local.strip_suffix("|2.2.1") == Some(name) {
+                if accepted.contains(&local.strip_suffix("|2.2.1").unwrap_or(local)) {
                     matched = true;
                 }
             }
@@ -177,7 +188,9 @@ struct Bundle<'a> {
 impl<'a> Bundle<'a> {
     fn collection(value: &'a Value, name: &'static str) -> Result<Self, Error> {
         profile(value, "Bundle", name)?;
+        // FHIR R4 bdl-1: total is only allowed for searchset and history Bundles.
         if value["type"] != "collection"
+            || value.get("total").is_some()
             || identifier(&value["identifier"]).is_none()
             || !instant(&value["timestamp"])
         {
@@ -345,8 +358,18 @@ fn rest_identity(url: &str) -> Option<(&str, &str, &str)> {
     .then_some((base, kind, id))
 }
 
-fn patient(value: &Value) -> Result<(), Error> {
-    profile(value, "Patient", "profile-beneficiary")?;
+/// Both PAS 2.2.1 Patient profiles derive from US Core Patient 7.0.0 and differ only by optional
+/// elements (profile-subscriber adds extension-militaryStatus 0..1; profile-beneficiary adds the
+/// multipleBirthInteger slice 0..1). Claim.patient and Coverage.beneficiary point at
+/// profile-beneficiary and Coverage.subscriber at profile-subscriber, but the official examples
+/// reuse one profile-subscriber Patient for the self-insured case. A targetProfile is satisfied by
+/// content conformance, so a Patient that declares either profile fills either role. The content
+/// checks below cover required elements both profiles share: identifier 1..* with system and
+/// value, name 1..*, gender 1..1. ClaimResponse.patient has the same profile-beneficiary target.
+const PATIENT_PROFILES: [&str; 2] = ["profile-beneficiary", "profile-subscriber"];
+
+fn patient(value: &Value, role: &'static str) -> Result<(), Error> {
+    profile_among(value, "Patient", role, &PATIENT_PROFILES)?;
     if !list(&value["identifier"])
         .iter()
         .any(|value| identifier(value).is_some())
@@ -356,7 +379,7 @@ fn patient(value: &Value) -> Result<(), Error> {
             Some("male" | "female" | "other" | "unknown")
         )
     {
-        return Err(Error::Profile("profile-beneficiary"));
+        return Err(Error::Profile(role));
     }
     Ok(())
 }
@@ -452,7 +475,7 @@ pub fn validate_request(value: &Value) -> Result<Request<'_>, Error> {
     let previous = previous_claim(&bundle, claim)?;
     request_claim_fields(resource, previous.is_some())?;
     let patient_entry = bundle.target(claim, &resource["patient"], "Patient")?;
-    patient(patient_entry.resource)?;
+    patient(patient_entry.resource, "profile-beneficiary")?;
     let insurer = bundle.target(claim, &resource["insurer"], "Organization")?;
     organization(insurer.resource, "profile-insurer")?;
     let provider = bundle
@@ -493,18 +516,36 @@ pub fn validate_request(value: &Value) -> Result<Request<'_>, Error> {
         let coverage = bundle.target(claim, &insurance["coverage"], "Coverage")?;
         profile(coverage.resource, "Coverage", "profile-coverage")?;
         let beneficiary = bundle.target(coverage, &coverage.resource["beneficiary"], "Patient")?;
+        // profile-coverage invariant self-beneficiary: without the X12 self code 18 (the published
+        // expression compares code only), the subscriber SHALL be present. Coverage.subscriber
+        // points at profile-subscriber.
+        match coverage.resource.get("subscriber") {
+            Some(subscriber) => patient(
+                bundle.target(coverage, subscriber, "Patient")?.resource,
+                "profile-subscriber",
+            )?,
+            None => {
+                if list(&coverage.resource["relationship"]["coding"])
+                    .iter()
+                    .all(|coding| coding["code"] != "18")
+                {
+                    return Err(Error::Missing("Coverage.subscriber"));
+                }
+            }
+        }
         let payors = required_list(&coverage.resource["payor"], "Coverage.payor")?;
         let payor = bundle.target(coverage, &payors[0], "Organization")?;
         if payors.len() != 1
             || coverage.resource["status"] != "active"
             || !concept(&coverage.resource["relationship"])
+            // The memberid slice is discriminated by the MB type pattern alone; its system and
+            // value are 0..1, and the official examples carry the id in Coverage.subscriberId.
             || list(&coverage.resource["identifier"])
                 .iter()
                 .filter(|value| {
-                    identifier(value).is_some()
-                        && codings(&value["type"]).any(|coding| {
-                            coding == ("http://terminology.hl7.org/CodeSystem/v2-0203", "MB")
-                        })
+                    codings(&value["type"]).any(|coding| {
+                        coding == ("http://terminology.hl7.org/CodeSystem/v2-0203", "MB")
+                    })
                 })
                 .count()
                 != 1
@@ -543,6 +584,7 @@ pub fn validate_request(value: &Value) -> Result<Request<'_>, Error> {
             }
         }
     }
+    claim_codes(resource)?;
     let mut items = BTreeMap::new();
     let cancelling = previous.is_some() && certification_is(resource, "3")?;
     let request_items = if cancelling && resource.get("item").is_none() {
@@ -636,6 +678,39 @@ pub fn validate_request(value: &Value) -> Result<Request<'_>, Error> {
         items,
         priority,
     })
+}
+
+/// profile-claim cardinalities: Claim.diagnosis.diagnosis[x] 1..1 restricted to CodeableConcept
+/// (Claim.diagnosis.diagnosisReference is not an allowed type), and Claim.procedure.procedure[x]
+/// 1..1 as CodeableConcept or Reference.
+fn claim_codes(claim: &Value) -> Result<(), Error> {
+    for entry in optional_list(claim, "diagnosis")? {
+        if entry.get("diagnosisReference").is_some() {
+            return Err(Error::Profile("Claim.diagnosis.diagnosis[x]"));
+        }
+        if !concept(&entry["diagnosisCodeableConcept"]) {
+            return Err(Error::Missing("Claim.diagnosis.diagnosis[x]"));
+        }
+    }
+    for entry in optional_list(claim, "procedure")? {
+        let coded = entry.get("procedureCodeableConcept");
+        let referenced = entry.get("procedureReference");
+        if coded.is_some() && referenced.is_some() {
+            return Err(Error::Profile("Claim.procedure.procedure[x]"));
+        }
+        let present = match (coded, referenced) {
+            (Some(coded), None) => concept(coded),
+            (None, Some(reference)) => {
+                required_text(&reference["reference"]).is_some()
+                    || identifier(&reference["identifier"]).is_some()
+            }
+            _ => false,
+        };
+        if !present {
+            return Err(Error::Missing("Claim.procedure.procedure[x]"));
+        }
+    }
+    Ok(())
 }
 
 fn request_claim_fields(value: &Value, update: bool) -> Result<(), Error> {
@@ -861,6 +936,7 @@ pub fn validate_response(
         bundle
             .target(entry, &response["patient"], "Patient")?
             .resource,
+        "profile-beneficiary",
     )?;
     organization(
         bundle

@@ -1,0 +1,170 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  hygiene:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      GITLEAKS_VERSION: 8.30.1
+      GITLEAKS_SHA256: 551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Repository hygiene
+        run: bash scripts/check_repo_hygiene.sh --candidate --history --self-test
+      - name: Install Gitleaks
+        run: |
+          archive="gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          curl -sSfL -o "$RUNNER_TEMP/$archive" \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/$archive"
+          echo "${GITLEAKS_SHA256}  $RUNNER_TEMP/$archive" | sha256sum --check
+          tar -xzf "$RUNNER_TEMP/$archive" -C "$RUNNER_TEMP" gitleaks
+          test "$("$RUNNER_TEMP/gitleaks" version)" = "$GITLEAKS_VERSION"
+      - name: Gitleaks over every reachable commit
+        run: '"$RUNNER_TEMP/gitleaks" git --redact --verbose --exit-code 1 .'
+      - name: Gitleaks over the checked-out candidate
+        run: '"$RUNNER_TEMP/gitleaks" dir --redact --verbose --exit-code 1 .'
+
+  rust:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Toolchain
+        run: rustup toolchain install stable --profile minimal --component rustfmt,clippy && rustup default stable
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      - uses: taiki-e/install-action@fe3acb53a98b62c772db35de75ce0e4595e7ca8c # v2.90.8
+        with:
+          tool: cargo-deny
+      - run: cargo fmt --all -- --check
+      - run: cargo check --locked --workspace
+      - run: cargo clippy --locked --workspace --all-targets -- -D warnings
+      - name: NCCI and MUE properties at 10,000 cases each
+        # The properties read PROPTEST_CASES; the floor makes the run fail if it is ever lower.
+        env:
+          PROPTEST_CASES: "10000"
+          MEDVERIFY_MIN_PROPTEST_CASES: "10000"
+        run: cargo test --locked -p medverify-core --test ncci_mue
+      - run: cargo test --locked --workspace
+      - name: Validate published HL7 PAS 2.2.1 examples
+        shell: bash
+        run: |
+          export MEDVERIFY_PAS_EXAMPLES="$RUNNER_TEMP/pas-2.2.1"
+          mkdir -p "$MEDVERIFY_PAS_EXAMPLES"
+          (
+            cd "$MEDVERIFY_PAS_EXAMPLES"
+            while read -r checksum file; do
+              curl --fail --silent --show-error --location --retry 3 --max-time 60 \
+                "https://hl7.org/fhir/us/davinci-pas/2.2.1/en/$file" -o "$file"
+              printf '%s  %s\n' "$checksum" "$file" | sha256sum --check
+            done <<'CHECKSUMS'
+          a92feeaaf90f208096b679d1c691a288da8fd8e8c6663ace939730c72e830ef4  Bundle-HomecareAuthorizationBundleExample.json
+          fa2597dcc56062abbe864cffbe2ef793910f87e638502595855ff59abb0b0845  Bundle-MedicalServicesAuthorizationBundleExample.json
+          66f6536c2d6b1ea2130156e4571a189f0045695f78215e1703fa322c25ebd361  Bundle-ReferralAuthorizationBundleExample.json
+          effee0ad5496a1a9aa7439ce5b15b1c218fa7279bb588588fd1dc490cbaf1ec3  Bundle-SurgicalRequestBundleExample.json
+          CHECKSUMS
+          )
+          cargo test --locked -p medverify-core --test pas -- \
+            --ignored --exact official_pas_examples_follow_the_published_profiles
+      - run: cargo deny check
+
+  python:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
+      - run: uv sync --locked
+      - run: uv run --locked maturin develop --release
+      - run: uv run --locked pytest -q
+      - run: uv run --locked mypy --strict python/
+      - run: uv run --locked python -m mypy.stubtest medverify._medverify
+      - run: >-
+          uv run --locked mypy --strict scripts/sandbox_common.py scripts/fetch_sandbox.py scripts/seed_hapi.py
+          scripts/check_reset.py scripts/run_inferno.py scripts/inspect_release.py
+      - run: uv run --locked ruff check .
+      - name: Source distribution builds alone
+        run: bash scripts/check_sdist.sh "$RUNNER_TEMP/sdist-check"
+      - name: Inspect the sdist and wheel
+        run: >-
+          uv run --locked python scripts/inspect_release.py
+          "$RUNNER_TEMP"/sdist-check/dist/*.tar.gz "$RUNNER_TEMP"/sdist-check/wheel/*.whl
+
+  python-free-threaded:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
+      - run: uv python install 3.14t
+      - name: Bindings on CPython 3.14t
+        env:
+          UV_PROJECT_ENVIRONMENT: .venv-ft
+        run: uv run --locked --python 3.14t pytest -q tests/test_bindings.py
+
+  sandbox:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    env:
+      COMPOSE: docker compose -f sandbox/docker-compose.yaml
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
+      - run: uv sync --locked
+      - name: Fetch pinned upstreams
+        run: uv run --locked python scripts/fetch_sandbox.py --locked
+      - run: $COMPOSE config --quiet
+      - name: Build and start
+        run: $COMPOSE up --build -d --wait --wait-timeout 1800
+      - name: Seed synthetic Washington patients
+        run: uv run --locked python scripts/seed_hapi.py --patients 50 --state Washington --seed 42
+      - name: Snapshot the seeded database
+        run: bash scripts/reset_sandbox.sh --create-template
+      - name: Check resets
+        run: uv run --locked python scripts/check_reset.py --cycles 2 --expected-patients 50
+      - name: Inferno server suites
+        run: uv run --locked python scripts/run_inferno.py --crd 2.2.1 --dtr 2.2.0 --pas 2.2.1 --require-pass
+      - name: Inspect the conformance report
+        if: always()
+        run: test ! -f docs/CONFORMANCE.md || uv run --locked python scripts/inspect_release.py docs/CONFORMANCE.md
+      - name: Service logs
+        if: failure()
+        run: mkdir -p artifacts && { $COMPOSE logs --no-color --timestamps > artifacts/compose.log 2>&1 || true; }
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: sandbox-reports
+          path: |
+            artifacts/
+            docs/CONFORMANCE.md
+            .cache/sandbox/
+          if-no-files-found: ignore
+      - name: Stop
+        if: always()
+        run: $COMPOSE down --volumes --remove-orphans

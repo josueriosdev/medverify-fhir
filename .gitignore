@@ -1,6 +1,7 @@
 /target/
 /dist/
 /docs/internal/
+/memory-bank/
 /.cache/
 /.venv/
 /.venv-ft/

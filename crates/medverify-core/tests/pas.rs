@@ -884,3 +884,426 @@ fn state_reviewer_rules_depend_on_state_plan_date_and_decision_basis() {
         Ok(())
     );
 }
+
+// Synthetic self-insured request in the shape the HL7 PAS 2.2.1 examples use: one Patient that
+// declares profile-subscriber is Claim.patient and Coverage.beneficiary, Coverage has no
+// Coverage.subscriber, the member id sits in Coverage.subscriberId, and the Coverage.identifier
+// MB slice carries only its type. Relationship carries the X12 self code 18 beside the FHIR code.
+fn subscriber_request() -> Value {
+    serde_json::from_str(include_str!("fixtures/pas/request_subscriber.json")).unwrap()
+}
+
+fn resource<'a>(bundle: &'a mut Value, kind: &str) -> &'a mut Value {
+    bundle["entry"]
+        .as_array_mut()
+        .unwrap()
+        .iter_mut()
+        .map(|entry| &mut entry["resource"])
+        .find(|resource| resource["resourceType"] == kind)
+        .unwrap()
+}
+
+fn set_patient_profile(bundle: &mut Value, profile: &str) {
+    resource(bundle, "Patient")["meta"]["profile"] = json!([format!("{PAS}{profile}")]);
+}
+
+fn dependent_patient() -> Value {
+    json!({
+        "fullUrl":"https://example.test/fhir/Patient/dependent",
+        "resource":{
+            "resourceType":"Patient","id":"dependent",
+            "meta":{"profile":[format!("{PAS}profile-beneficiary")]},
+            "identifier":[{"system":"https://example.test/member-ids","value":"synthetic-member-2"}],
+            "name":[{"given":["Sample"],"family":"Dependent"}],
+            "gender":"unknown"
+        }
+    })
+}
+
+#[test]
+fn one_patient_fills_claim_patient_and_coverage_beneficiary_under_either_patient_profile() {
+    // Claim.patient and Coverage.beneficiary have targetProfile profile-beneficiary, while the HL7
+    // 2.2.1 examples declare profile-subscriber on that Patient. Both profiles derive from US Core
+    // Patient 7.0.0 and differ only by optional elements (extension-militaryStatus; the
+    // multipleBirthInteger slice), so a Patient declaring either one satisfies the role.
+    // https://hl7.org/fhir/us/davinci-pas/2.2.1/StructureDefinition-profile-beneficiary.html
+    // https://hl7.org/fhir/us/davinci-pas/2.2.1/StructureDefinition-profile-subscriber.html
+    let mut value = subscriber_request();
+    let parsed = validate_request(&value).unwrap();
+    assert_eq!(parsed.priority(), Priority::Standard);
+    assert_eq!(
+        parsed.items().map(|item| item.sequence).collect::<Vec<_>>(),
+        [1]
+    );
+    for profile in [
+        "profile-beneficiary",
+        "profile-beneficiary|2.2.1",
+        "profile-subscriber|2.2.1",
+    ] {
+        set_patient_profile(&mut value, profile);
+        assert!(validate_request(&value).is_ok(), "{profile}");
+    }
+
+    // A PAS profile for another resource type, or another PAS version, is still rejected.
+    for profile in ["profile-insurer", "profile-subscriber|2.1.0"] {
+        set_patient_profile(&mut value, profile);
+        assert_eq!(
+            validate_request(&value).err(),
+            Some(Error::Profile("profile-beneficiary")),
+            "{profile}"
+        );
+    }
+
+    // The shared required content is still enforced: US Core Patient identifier 1..* with
+    // system 1..1 and value 1..1, name 1..*, gender 1..1.
+    set_patient_profile(&mut value, "profile-subscriber");
+    let valid = value.clone();
+    for field in ["identifier", "name", "gender"] {
+        value = valid.clone();
+        resource(&mut value, "Patient")
+            .as_object_mut()
+            .unwrap()
+            .remove(field);
+        assert_eq!(
+            validate_request(&value).err(),
+            Some(Error::Profile("profile-beneficiary")),
+            "{field}"
+        );
+    }
+    value = valid;
+    resource(&mut value, "Patient")["identifier"][0]
+        .as_object_mut()
+        .unwrap()
+        .remove("system");
+    assert_eq!(
+        validate_request(&value).err(),
+        Some(Error::Profile("profile-beneficiary"))
+    );
+}
+
+#[test]
+fn response_patient_may_declare_either_patient_profile() {
+    let submission = request();
+    let request = validate_request(&submission).unwrap();
+    let mut value = response();
+    for profile in ["profile-subscriber|2.2.1", "profile-subscriber"] {
+        set_patient_profile(&mut value, profile);
+        assert!(validate_response(&value, &request, ResponseContext::default()).is_ok());
+    }
+    set_patient_profile(&mut value, "profile-insurer");
+    assert!(matches!(
+        validate_response(&value, &request, ResponseContext::default()),
+        Err(Error::Profile("profile-beneficiary"))
+    ));
+}
+
+#[test]
+fn coverage_subscriber_is_required_without_the_x12_self_code_and_must_be_a_patient() {
+    // profile-coverage invariant self-beneficiary (error): without a coding whose code is 18,
+    // Coverage.subscriber SHALL be present. Coverage.subscriber has targetProfile
+    // profile-subscriber.
+    // https://hl7.org/fhir/us/davinci-pas/2.2.1/StructureDefinition-profile-coverage.html
+    let mut value = subscriber_request();
+    resource(&mut value, "Coverage")["relationship"]["coding"] = json!([{
+        "system":"http://terminology.hl7.org/CodeSystem/subscriber-relationship","code":"self"
+    }]);
+    assert_eq!(
+        validate_request(&value).err(),
+        Some(Error::Missing("Coverage.subscriber"))
+    );
+    resource(&mut value, "Coverage")["subscriber"] = json!({"reference":"Patient/subscriber"});
+    assert!(validate_request(&value).is_ok());
+
+    // Dependent: Claim.patient and Coverage.beneficiary are the dependent, the subscriber is a
+    // separate profile-subscriber Patient.
+    let mut dependent = subscriber_request();
+    dependent["entry"]
+        .as_array_mut()
+        .unwrap()
+        .push(dependent_patient());
+    resource(&mut dependent, "Claim")["patient"]["reference"] = json!("Patient/dependent");
+    let coverage = resource(&mut dependent, "Coverage");
+    coverage["beneficiary"]["reference"] = json!("Patient/dependent");
+    coverage["relationship"]["coding"] = json!([
+        {"system":"http://terminology.hl7.org/CodeSystem/subscriber-relationship","code":"child"},
+        {"system":"https://codesystem.x12.org/005010/1069","code":"19"}
+    ]);
+    assert_eq!(
+        validate_request(&dependent).err(),
+        Some(Error::Missing("Coverage.subscriber"))
+    );
+    resource(&mut dependent, "Coverage")["subscriber"] = json!({"reference":"Patient/subscriber"});
+    assert!(validate_request(&dependent).is_ok());
+    set_patient_profile(&mut dependent, "profile-beneficiary");
+    assert!(validate_request(&dependent).is_ok());
+
+    let valid = dependent.clone();
+    resource(&mut dependent, "Coverage")["subscriber"]["reference"] = json!("Organization/payer");
+    assert_eq!(
+        validate_request(&dependent).err(),
+        Some(Error::ReferenceType)
+    );
+    dependent = valid.clone();
+    resource(&mut dependent, "Coverage")["subscriber"]["reference"] = json!("Patient/unknown");
+    assert_eq!(validate_request(&dependent).err(), Some(Error::Reference));
+    dependent = valid.clone();
+    set_patient_profile(&mut dependent, "profile-insurer");
+    assert_eq!(
+        validate_request(&dependent).err(),
+        Some(Error::Profile("profile-subscriber"))
+    );
+    dependent = valid;
+    resource(&mut dependent, "Patient")
+        .as_object_mut()
+        .unwrap()
+        .remove("gender");
+    assert_eq!(
+        validate_request(&dependent).err(),
+        Some(Error::Profile("profile-subscriber"))
+    );
+}
+
+#[test]
+fn coverage_member_id_slice_is_matched_by_its_mb_type_alone() {
+    // profile-coverage slices Coverage.identifier by the type pattern MB; identifier:memberid is
+    // 1..1 and its system and value are 0..1 (the HL7 examples send only the type).
+    // https://hl7.org/fhir/us/davinci-pas/2.2.1/StructureDefinition-profile-coverage.html
+    let mut value = subscriber_request();
+    assert!(validate_request(&value).is_ok());
+    let member = resource(&mut value, "Coverage")["identifier"][0].clone();
+
+    let mut other = value.clone();
+    resource(&mut other, "Coverage")["identifier"]
+        .as_array_mut()
+        .unwrap()
+        .push(json!({"system":"https://example.test/identifiers","value":"group-1"}));
+    assert!(validate_request(&other).is_ok());
+
+    let mut twice = value.clone();
+    resource(&mut twice, "Coverage")["identifier"]
+        .as_array_mut()
+        .unwrap()
+        .push(member);
+    assert_eq!(
+        validate_request(&twice).err(),
+        Some(Error::Profile("profile-coverage"))
+    );
+    resource(&mut value, "Coverage")["identifier"][0]["type"] = json!({"text":"Member number"});
+    assert_eq!(
+        validate_request(&value).err(),
+        Some(Error::Profile("profile-coverage"))
+    );
+}
+
+#[test]
+fn collection_bundles_must_not_carry_total() {
+    // FHIR R4 invariant bdl-1: total is only allowed for searchset and history Bundles.
+    // https://hl7.org/fhir/R4/bundle.html#invs
+    let submission = request();
+    assert!(validate_request(&submission).is_ok());
+    for total in [json!(0), json!(2)] {
+        let mut value = submission.clone();
+        value["total"] = total;
+        assert!(matches!(validate_request(&value), Err(Error::Bundle)));
+    }
+    let parsed = validate_request(&submission).unwrap();
+    let mut reply = response();
+    assert!(validate_response(&reply, &parsed, ResponseContext::default()).is_ok());
+    reply["total"] = json!(1);
+    assert!(matches!(
+        validate_response(&reply, &parsed, ResponseContext::default()),
+        Err(Error::Bundle)
+    ));
+}
+
+#[test]
+fn claim_diagnosis_and_procedure_require_their_code() {
+    // profile-claim: Claim.diagnosis.diagnosis[x] is 1..1 and restricted to CodeableConcept;
+    // Claim.procedure.procedure[x] is 1..1 (CodeableConcept or Reference).
+    // https://hl7.org/fhir/us/davinci-pas/2.2.1/StructureDefinition-profile-claim.html
+    let code =
+        json!({"coding":[{"system":"https://example.test/synthetic-diagnoses","code":"D1"}]});
+    let mut value = request();
+    value["entry"][0]["resource"]["diagnosis"] =
+        json!([{"sequence":1,"diagnosisCodeableConcept":code}]);
+    value["entry"][0]["resource"]["procedure"] =
+        json!([{"sequence":1,"procedureCodeableConcept":code}]);
+    value["entry"][0]["resource"]["item"][0]["diagnosisSequence"] = json!([1]);
+    value["entry"][0]["resource"]["item"][0]["procedureSequence"] = json!([1]);
+    assert!(validate_request(&value).is_ok());
+
+    let diagnosis = |entries: Value| {
+        let mut changed = value.clone();
+        changed["entry"][0]["resource"]["diagnosis"] = entries;
+        validate_request(&changed).err()
+    };
+    let missing = Some(Error::Missing("Claim.diagnosis.diagnosis[x]"));
+    let invalid = Some(Error::Profile("Claim.diagnosis.diagnosis[x]"));
+    assert_eq!(diagnosis(json!([{"sequence":1}])), missing);
+    assert_eq!(
+        diagnosis(json!([{"sequence":1,"diagnosisCodeableConcept":code},{"sequence":2}])),
+        missing
+    );
+    assert_eq!(
+        diagnosis(json!([{"sequence":1,"diagnosisCodeableConcept":{}}])),
+        missing
+    );
+    assert_eq!(
+        diagnosis(json!([{
+            "sequence":1,
+            "diagnosisCodeableConcept":{"coding":[{"system":"https://example.test/synthetic-diagnoses"}]}
+        }])),
+        missing
+    );
+    assert_eq!(
+        diagnosis(json!([{"sequence":1,"diagnosisReference":{"reference":"Condition/c1"}}])),
+        invalid
+    );
+    assert_eq!(
+        diagnosis(json!([{
+            "sequence":1,"diagnosisCodeableConcept":code,
+            "diagnosisReference":{"reference":"Condition/c1"}
+        }])),
+        invalid
+    );
+    assert_eq!(
+        diagnosis(json!([{"diagnosisCodeableConcept":code}])),
+        Some(Error::ItemCorrelation)
+    );
+
+    let procedure = |entries: Value| {
+        let mut changed = value.clone();
+        changed["entry"][0]["resource"]["procedure"] = entries;
+        validate_request(&changed).err()
+    };
+    let logical = json!({"identifier":{"system":"https://example.test/identifiers","value":"p1"}});
+    assert_eq!(
+        procedure(json!([{"sequence":1,"procedureReference":logical}])),
+        None
+    );
+    assert_eq!(
+        procedure(json!([{"sequence":1}])),
+        Some(Error::Missing("Claim.procedure.procedure[x]"))
+    );
+    assert_eq!(
+        procedure(json!([{"sequence":1,"procedureReference":{}}])),
+        Some(Error::Missing("Claim.procedure.procedure[x]"))
+    );
+    assert_eq!(
+        procedure(json!([{
+            "sequence":1,"procedureCodeableConcept":code,"procedureReference":logical
+        }])),
+        Some(Error::Profile("Claim.procedure.procedure[x]"))
+    );
+}
+
+// The four request Bundles published with PAS 2.2.1 (also under example/ in package.tgz):
+//   https://hl7.org/fhir/us/davinci-pas/2.2.1/Bundle-HomecareAuthorizationBundleExample.json
+//   https://hl7.org/fhir/us/davinci-pas/2.2.1/Bundle-MedicalServicesAuthorizationBundleExample.json
+//   https://hl7.org/fhir/us/davinci-pas/2.2.1/Bundle-ReferralAuthorizationBundleExample.json
+//   https://hl7.org/fhir/us/davinci-pas/2.2.1/Bundle-SurgicalRequestBundleExample.json
+// CI downloads and verifies the HL7 content before running this test explicitly.
+#[test]
+#[ignore = "requires the four published HL7 PAS 2.2.1 fixtures"]
+fn official_pas_examples_follow_the_published_profiles() {
+    let dir = std::env::var_os("MEDVERIFY_PAS_EXAMPLES")
+        .expect("MEDVERIFY_PAS_EXAMPLES must contain all four published HL7 PAS 2.2.1 fixtures");
+    let load = |name: &str| -> Value {
+        let path = std::path::Path::new(&dir).join(name);
+        let text = std::fs::read_to_string(&path)
+            .unwrap_or_else(|error| panic!("{}: {error}", path.display()));
+        serde_json::from_str(&text).unwrap()
+    };
+    let sequences = |value: &Value| {
+        validate_request(value).ok().map(|parsed| {
+            (
+                parsed.items().map(|item| item.sequence).collect::<Vec<_>>(),
+                parsed.priority(),
+            )
+        })
+    };
+
+    // Accepted: a profile-subscriber Patient is Claim.patient and Coverage.beneficiary, and the
+    // Coverage.identifier MB slice has only its type (system and value are 0..1).
+    for (name, items, priority) in [
+        (
+            "Bundle-HomecareAuthorizationBundleExample.json",
+            vec![1, 2],
+            Priority::Standard,
+        ),
+        (
+            "Bundle-MedicalServicesAuthorizationBundleExample.json",
+            vec![1],
+            Priority::Standard,
+        ),
+        (
+            "Bundle-ReferralAuthorizationBundleExample.json",
+            vec![1],
+            Priority::Expedited,
+        ),
+    ] {
+        let value = load(name);
+        assert_eq!(sequences(&value), Some((items, priority)), "{name}");
+
+        let mut changed = value.clone();
+        set_patient_profile(&mut changed, "profile-beneficiary");
+        assert!(validate_request(&changed).is_ok(), "{name}");
+        // PAS profile for another resource type: still rejected.
+        set_patient_profile(&mut changed, "profile-insurer");
+        assert_eq!(
+            validate_request(&changed).err(),
+            Some(Error::Profile("profile-beneficiary")),
+            "{name}"
+        );
+        // bdl-1: total on a collection Bundle.
+        changed = value.clone();
+        changed["total"] = json!(1);
+        assert!(
+            matches!(validate_request(&changed), Err(Error::Bundle)),
+            "{name}"
+        );
+        // self-beneficiary: the examples are self-insured through the X12 code 18 alone.
+        changed = value.clone();
+        resource(&mut changed, "Coverage")["relationship"]["coding"]
+            .as_array_mut()
+            .unwrap()
+            .retain(|coding| coding["code"] != "18");
+        assert_eq!(
+            validate_request(&changed).err(),
+            Some(Error::Missing("Coverage.subscriber")),
+            "{name}"
+        );
+        // profile-claim: diagnosis[x] 1..1.
+        changed = value.clone();
+        resource(&mut changed, "Claim")["diagnosis"] = json!([{"sequence":1}]);
+        assert_eq!(
+            validate_request(&changed).err(),
+            Some(Error::Missing("Claim.diagnosis.diagnosis[x]")),
+            "{name}"
+        );
+    }
+
+    // Rejected: PractitionerRole/SurgicalPractitionerRoleExample points at
+    // Practitioner/ReferralPractitionerExample and Location/ReferralLocationExample, neither of
+    // which is in the Bundle. PAS 2.2.1 specification.html#spec-13: additional Bundle entries
+    // SHALL be populated with any resources referenced by the Claim resource (and any resources
+    // referenced by those resources, fully traversing all references).
+    let surgical = load("Bundle-SurgicalRequestBundleExample.json");
+    assert_eq!(validate_request(&surgical).err(), Some(Error::Reference));
+    let mut repaired = surgical.clone();
+    resource(&mut repaired, "PractitionerRole")["practitioner"]["reference"] =
+        json!("Practitioner/SurgicalPractitionerExample");
+    assert_eq!(validate_request(&repaired).err(), Some(Error::Reference));
+    resource(&mut repaired, "PractitionerRole")["location"][0]["reference"] =
+        json!("Location/SurgicalLocationExample");
+    assert_eq!(sequences(&repaired), Some((vec![1], Priority::Standard)));
+    let mut stripped = repaired.clone();
+    resource(&mut stripped, "Claim")["diagnosis"][0]
+        .as_object_mut()
+        .unwrap()
+        .remove("diagnosisCodeableConcept");
+    assert_eq!(
+        validate_request(&stripped).err(),
+        Some(Error::Missing("Claim.diagnosis.diagnosis[x]"))
+    );
+}

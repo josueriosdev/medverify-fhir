@@ -1,1 +1,3 @@
 *.sh text eol=lf
+# Compiled into the Rust core with include_str!, so every checkout must embed identical bytes.
+policy/*.toml text eol=lf
