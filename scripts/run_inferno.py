@@ -48,6 +48,7 @@ from sandbox_common import (
     inferno_base,
     load_lock,
     pas_control,
+    run_compose,
 )
 
 REPORT_ROOT = ROOT / "artifacts" / "inferno"
@@ -482,11 +483,16 @@ def classify(run: SuiteRun, index: dict[str, JSONObject], results: list[JSONObje
 
 
 def run_suite(kit: Kit, lock: JSONObject, timeout: float, notification_timeout: float, http_fn: HttpFunction,
-              clock: Callable[[], float] = time.monotonic, sleep: Callable[[float], None] = time.sleep) -> SuiteRun:
+              clock: Callable[[], float] = time.monotonic, sleep: Callable[[float], None] = time.sleep,
+              *, serial_compose: bool = False) -> SuiteRun:
     locked = lock["kits"][kit.key]
     run = SuiteRun(kit=kit, suite_id=locked["suite"], kit_version=locked["tag"],
                    ig_version=locked["implementation_guide_version"])
+    services = (f"validator-{kit.key}", kit.service, f"{kit.service}-worker")
     try:
+        if serial_compose:
+            print(f"{kit.key}: starting Inferno and its validator", flush=True)
+            run_compose("up", "--build", "-d", "--wait", "--wait-timeout", "1800", *services, timeout=2100)
         inferno = Inferno(kit, http_fn)
         suite = inferno.api("GET", f"/test_suites/{run.suite_id}")
         run.reported_version = str(suite.get("version") or "")
@@ -514,8 +520,14 @@ def run_suite(kit: Kit, lock: JSONObject, timeout: float, notification_timeout: 
         if not isinstance(results, list):
             raise SandboxError("session results are not a list")
         classify(run, index, results, {group["id"] for group in groups})
-    except SandboxError as error:
+    except (SandboxError, subprocess.TimeoutExpired) as error:
         run.problems.append(f"harness: {error}")
+    finally:
+        if serial_compose:
+            try:
+                run_compose("stop", *services, timeout=120)
+            except (SandboxError, subprocess.TimeoutExpired) as error:
+                run.problems.append(f"harness: could not stop {kit.key} services: {error}")
     run.finished = dt.datetime.now(dt.UTC).isoformat(timespec="seconds")
     return run
 
@@ -715,6 +727,7 @@ def main(argv: list[str] | None = None, http_fn: HttpFunction = http) -> int:
     parser.add_argument("--dtr", required=True, help="DTR implementation guide version")
     parser.add_argument("--pas", required=True, help="PAS implementation guide version")
     parser.add_argument("--require-pass", action="store_true", help="exit 1 unless every suite passes")
+    parser.add_argument("--serial-compose", action="store_true", help="start and stop each kit's Compose services")
     parser.add_argument("--group-timeout", type=float, default=1800.0)
     parser.add_argument("--notification-timeout", type=float, default=240.0)
     parser.add_argument("--report-dir", type=Path, default=None, help="default: artifacts/inferno/<UTC stamp>")
@@ -736,20 +749,26 @@ def main(argv: list[str] | None = None, http_fn: HttpFunction = http) -> int:
         print(f"run_inferno: {error}", file=sys.stderr)
         return 2
 
+    started = dt.datetime.now(dt.UTC).strftime("%Y%m%dT%H%M%SZ")
+    report_dir = args.report_dir or REPORT_ROOT / started
     runs: list[SuiteRun] = []
     for key in requested:
-        runs.append(run_suite(KITS[key], lock, args.group_timeout, args.notification_timeout, http_fn))
+        run = run_suite(KITS[key], lock, args.group_timeout, args.notification_timeout, http_fn,
+                        serial_compose=args.serial_compose)
+        runs.append(run)
+        write_reports([run], report_dir)
+        print(f"{run.suite_id}: {'pass' if run.passed else 'fail'} tests {run.counts} groups {run.group_counts}",
+              flush=True)
+        for problem in run.problems:
+            print(f"  {redact(problem)}", flush=True)
+        # After a Compose or harness error, a previous kit may still be using the runner.
+        if args.serial_compose and any(problem.startswith("harness: ") for problem in run.problems):
+            break
     stamp = dt.datetime.now(dt.UTC).strftime("%Y%m%dT%H%M%SZ")
-    report_dir = args.report_dir or REPORT_ROOT / stamp
-    write_reports(runs, report_dir)
     if not args.no_conformance_doc:
         args.conformance_doc.parent.mkdir(parents=True, exist_ok=True)
         document = render_conformance(runs, lock, stamp, report_dir, candidate_identity(), hardware())
         args.conformance_doc.write_text(document, encoding="utf-8")
-    for run in runs:
-        print(f"{run.suite_id}: {'pass' if run.passed else 'fail'} tests {run.counts} groups {run.group_counts}")
-        for problem in run.problems:
-            print(f"  {redact(problem)}")
     print(f"reports: {report_dir}")
     if any(problem.startswith("harness: ") for run in runs for problem in run.problems):
         return 2

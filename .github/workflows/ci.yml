@@ -152,20 +152,17 @@ jobs:
         run: bash scripts/reset_sandbox.sh --create-template
       - name: Check resets
         run: uv run --locked python scripts/check_reset.py --cycles 2 --expected-patients 50
-      - name: Start Inferno and its validators
+      - name: Prepare for Inferno conformance
         run: |
           # The payer suites use their own fixtures. HAPI's seeded database remains on disk.
           $COMPOSE stop hapi
-          $COMPOSE up --build -d --wait --wait-timeout 1800 \
-            validator-crd validator-dtr validator-pas \
-            inferno-crd-worker inferno-dtr-worker inferno-pas-worker
           free -h
           df -h / /var/lib/docker
           docker stats --no-stream --format 'table {{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}'
       - name: Inferno server suites
         run: >-
           uv run --locked python scripts/run_inferno.py --crd 2.2.1 --dtr 2.2.0 --pas 2.2.1
-          --require-pass --conformance-doc artifacts/CONFORMANCE.md
+          --require-pass --serial-compose --conformance-doc artifacts/CONFORMANCE.md
       - name: Inspect the conformance report
         if: always()
         run: test ! -f artifacts/CONFORMANCE.md || uv run --locked python scripts/inspect_release.py artifacts/CONFORMANCE.md

@@ -460,11 +460,11 @@ def stubbed_kits(monkeypatch):
     monkeypatch.setattr(run_inferno, "candidate_identity", lambda: {"base commit": "test"})
 
 
-def run_cli(tmp_path, session_results):
+def run_cli(tmp_path, session_results, *flags):
     doc = tmp_path / "absent" / "docs" / "CONFORMANCE.md"
     code = run_inferno.main(
         ["--crd", "2.2.1", "--dtr", "2.2.0", "--pas", "2.2.1", "--require-pass",
-         "--report-dir", str(tmp_path / "reports"), "--conformance-doc", str(doc)],
+         "--report-dir", str(tmp_path / "reports"), "--conformance-doc", str(doc), *flags],
         http_fn=FakeInferno(session_results),
     )
     return code, doc
@@ -476,6 +476,27 @@ def test_cli_passes_a_clean_run_and_creates_the_document(tmp_path, stubbed_kits)
     assert "Overall verdict: **pass**" in doc.read_text(encoding="utf-8")
     report = json.loads((tmp_path / "reports" / "pas.json").read_text(encoding="utf-8"))
     assert report["passed"] and report["counts"] == {"omit": 1, "pass": 1, "skip": 1}
+
+
+@pytest.mark.parametrize("stop_fails", [False, True])
+def test_serial_compose_stops_each_kit_before_starting_the_next(tmp_path, stubbed_kits, monkeypatch, stop_fails):
+    calls = []
+
+    def compose(*args, timeout):
+        key = args[-3].removeprefix("validator-")
+        assert args[-3:] == (f"validator-{key}", f"inferno-{key}", f"inferno-{key}-worker")
+        if args[0] == "up" and key == "dtr":
+            assert (tmp_path / "reports" / "crd.json").is_file()
+        calls.append((key, args[0]))
+        if args[0] == "stop" and stop_fails:
+            raise SandboxError("stop failed")
+
+    monkeypatch.setattr(run_inferno, "run_compose", compose)
+    code, doc = run_cli(tmp_path, results({"t1": "pass", "t2": "pass", "t3": "pass"}), "--serial-compose")
+    kits = ("crd",) if stop_fails else ("crd", "dtr", "pas")
+    assert calls == [(key, action) for key in kits for action in ("up", "stop")]
+    assert code == (2 if stop_fails else 0)
+    assert f"Overall verdict: **{'fail' if stop_fails else 'pass'}**" in doc.read_text(encoding="utf-8")
 
 
 @pytest.mark.parametrize(
