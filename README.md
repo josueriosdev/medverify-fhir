@@ -38,6 +38,10 @@ python -m uv run --locked pytest -q
 
 The Rust benchmarks measure pair lookup, ten-line claim evaluation, and WISeR routing with PAS validation on synthetic inputs. [Workloads and measured results](BENCHMARKS.md)
 
+Open a pull request against `main` and wait for the applicable CI jobs to pass. Documentation-only PRs run repository hygiene and secret scanning. Code changes also run the Rust and Python jobs. Changes to FHIR or payer policy, sandbox files, CI, build manifests, or lockfiles also run the sandbox and Inferno suites.
+
+Before tagging a release, use **Actions → CI → Run workflow** on `main`. Confirm that the run tested the commit you intend to tag and that all jobs passed.
+
 ## ICD-10-CM
 
 Download and verify the CDC's FY2027 ICD-10-CM code list.

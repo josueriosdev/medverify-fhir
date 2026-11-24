@@ -1,9 +1,8 @@
 name: CI
 
 on:
-  push:
-    branches: [main]
   pull_request:
+    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -20,6 +19,9 @@ jobs:
   hygiene:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
+    outputs:
+      code: ${{ steps.changes.outputs.code }}
+      sandbox: ${{ steps.changes.outputs.sandbox }}
     env:
       GITLEAKS_VERSION: 8.30.1
       GITLEAKS_SHA256: 551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
@@ -28,6 +30,36 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
+      - name: Select checks for the changed files
+        id: changes
+        shell: bash
+        run: |
+          code=true
+          sandbox=true
+          if [[ "$GITHUB_EVENT_NAME" == pull_request ]]; then
+            code=false
+            sandbox=false
+            paths=$(mktemp)
+            # The first parent of GitHub's PR merge commit is the base used for this run.
+            # Treat renames as deletion and addition so both paths can trigger checks.
+            git diff --no-renames --name-only -z HEAD^1 HEAD > "$paths"
+            while IFS= read -r -d '' path; do
+              case "$path" in
+                README.md|BENCHMARKS.md|LICENSING.md|docs/*.md) continue ;;
+              esac
+              code=true
+              case "$path" in
+                .github/*|.gitattributes|sandbox/*|scripts/*|policy/*|\
+                Cargo.toml|Cargo.lock|crates/*/Cargo.toml|pyproject.toml|uv.lock|\
+                crates/medverify-core/src/fhir_pas*|crates/medverify-core/src/wiser*|\
+                crates/medverify-core/tests/pas.rs|crates/medverify-core/tests/wiser.rs|\
+                crates/medverify-core/tests/fixtures/pas/*|tests/test_sandbox*.py)
+                  sandbox=true
+                  ;;
+              esac
+            done < "$paths"
+          fi
+          printf 'code=%s\nsandbox=%s\n' "$code" "$sandbox" >> "$GITHUB_OUTPUT"
       - name: Repository hygiene
         run: bash scripts/check_repo_hygiene.sh --candidate --history --self-test
       - name: Install Gitleaks
@@ -44,6 +76,8 @@ jobs:
         run: '"$RUNNER_TEMP/gitleaks" dir --redact --verbose --exit-code 1 .'
 
   rust:
+    needs: hygiene
+    if: needs.hygiene.outputs.code == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
@@ -89,6 +123,8 @@ jobs:
       - run: cargo deny check
 
   python:
+    needs: hygiene
+    if: needs.hygiene.outputs.code == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
@@ -113,6 +149,8 @@ jobs:
           "$RUNNER_TEMP"/sdist-check/dist/*.tar.gz "$RUNNER_TEMP"/sdist-check/wheel/*.whl
 
   python-free-threaded:
+    needs: hygiene
+    if: needs.hygiene.outputs.code == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
@@ -127,6 +165,8 @@ jobs:
         run: uv run --locked --python 3.14t pytest -q tests/test_bindings.py
 
   sandbox:
+    needs: hygiene
+    if: needs.hygiene.outputs.sandbox == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 180
     env:
