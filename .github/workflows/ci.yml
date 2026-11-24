@@ -140,30 +140,51 @@ jobs:
       - name: Fetch pinned upstreams
         run: uv run --locked python scripts/fetch_sandbox.py --locked
       - run: $COMPOSE config --quiet
-      - name: Build and start
-        run: $COMPOSE up --build -d --wait --wait-timeout 1800
+      - name: Start HAPI and the payer services
+        run: $COMPOSE up --build -d --wait --wait-timeout 1800 hapi crd dtr pas
       - name: Seed synthetic Washington patients
-        run: uv run --locked python scripts/seed_hapi.py --patients 50 --state Washington --seed 42
+        run: |
+          free -h
+          df -h / /var/lib/docker
+          docker stats --no-stream --format 'table {{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}'
+          uv run --locked python scripts/seed_hapi.py --patients 50 --state Washington --seed 42
       - name: Snapshot the seeded database
         run: bash scripts/reset_sandbox.sh --create-template
       - name: Check resets
         run: uv run --locked python scripts/check_reset.py --cycles 2 --expected-patients 50
+      - name: Start Inferno and its validators
+        run: |
+          # The payer suites use their own fixtures. HAPI's seeded database remains on disk.
+          $COMPOSE stop hapi
+          $COMPOSE up --build -d --wait --wait-timeout 1800 \
+            validator-crd validator-dtr validator-pas \
+            inferno-crd-worker inferno-dtr-worker inferno-pas-worker
+          free -h
+          df -h / /var/lib/docker
+          docker stats --no-stream --format 'table {{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}'
       - name: Inferno server suites
-        run: uv run --locked python scripts/run_inferno.py --crd 2.2.1 --dtr 2.2.0 --pas 2.2.1 --require-pass
+        run: >-
+          uv run --locked python scripts/run_inferno.py --crd 2.2.1 --dtr 2.2.0 --pas 2.2.1
+          --require-pass --conformance-doc artifacts/CONFORMANCE.md
       - name: Inspect the conformance report
         if: always()
-        run: test ! -f docs/CONFORMANCE.md || uv run --locked python scripts/inspect_release.py docs/CONFORMANCE.md
+        run: test ! -f artifacts/CONFORMANCE.md || uv run --locked python scripts/inspect_release.py artifacts/CONFORMANCE.md
       - name: Service logs
         if: failure()
-        run: mkdir -p artifacts && { $COMPOSE logs --no-color --timestamps > artifacts/compose.log 2>&1 || true; }
+        run: |
+          free -h
+          df -h / /var/lib/docker
+          $COMPOSE ps --all
+          mkdir -p artifacts
+          $COMPOSE logs --no-color --timestamps > artifacts/compose.log 2>&1 || true
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
           name: sandbox-reports
           path: |
             artifacts/
-            docs/CONFORMANCE.md
-            .cache/sandbox/
+            .cache/sandbox/medverify-sandbox/*.json
+          include-hidden-files: true
           if-no-files-found: ignore
       - name: Stop
         if: always()
