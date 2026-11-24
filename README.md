@@ -48,7 +48,7 @@ python -m uv run --locked medverify-ingest icd10 --release FY2027 --out .cache/d
 
 ## FHIR sandbox
 
-A Docker Compose sandbox runs HAPI FHIR R4 8.12.0-2 on PostgreSQL 16, the Nirmitee Go payer servers for Da Vinci CRD 2.2.1, DTR 2.2.0 and PAS 2.2.1 behind a test TLS proxy, and the official Inferno server suites from the CRD 0.15.0, DTR 0.18.1 and PAS 0.16.0 test kits. Images are pinned by digest and sources by commit in [sandbox/upstreams.lock](sandbox/upstreams.lock). It needs Docker Engine with Compose and buildx, and network access while building and validating.
+A Docker Compose sandbox runs HAPI FHIR R4 8.12.0-2 on PostgreSQL 16, the Nirmitee Go payer servers for Da Vinci CRD 2.2.1, DTR 2.2.0 and PAS 2.2.1 behind a test TLS proxy, and the official Inferno server suites from the CRD 0.15.0, DTR 0.18.1 and PAS 0.16.0 test kits. Images are pinned by digest and sources by commit in [sandbox/upstreams.lock](sandbox/upstreams.lock). It needs Docker Engine with Compose and buildx, Bash 4 or later (macOS ships Bash 3.2), and network access while building and validating.
 
 ```sh
 python -m uv run --locked python scripts/fetch_sandbox.py --locked
