@@ -206,6 +206,12 @@ jobs:
       - name: Inspect the conformance report
         if: always()
         run: test ! -f artifacts/CONFORMANCE.md || uv run --locked python scripts/inspect_release.py artifacts/CONFORMANCE.md
+      - name: Container restarts and out-of-memory kills
+        if: always()
+        run: |
+          ids=$($COMPOSE ps --all -q)
+          test -z "$ids" || docker inspect --format '{{.Name}} restarts={{.RestartCount}} exit={{.State.ExitCode}} oom={{.State.OOMKilled}}' $ids
+          sudo dmesg | grep -iE 'out of memory|oom-kill|killed process' || echo 'no kernel OOM kills'
       - name: Service logs
         if: failure()
         run: |

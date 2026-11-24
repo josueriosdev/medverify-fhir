@@ -254,7 +254,9 @@ services:
       # Negative keeps validator sessions for the whole run instead of reloading IGs per test.
       SESSION_CACHE_DURATION: "-1"
       JAVA_TOOL_OPTIONS: -Xmx3g
-    mem_limit: 4g
+    # Loaded IG packages and concurrent validations use memory outside the 3g heap. At 4g the
+    # kernel killed the PAS validator mid-suite with no Java error, and Inferno saw refused connections.
+    mem_limit: 6g
     volumes: *probe
     healthcheck:
       test: ["CMD", "/probe/busybox", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:3500/validator/version"]
